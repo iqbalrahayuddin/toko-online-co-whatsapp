@@ -1,0 +1,38 @@
+Installasi di Localhost
+
+Berikut adalah cara installasi di localhost:
+
+Download dan Extract :
+
+1. Buat folder, misalnya: tokowa di localhost Anda. Kalau di XAMPP misalnya ada di folder htdocs.
+2. Extract file yang sudah didownload tadi.
+3. Copy isinya (di folder Script) ke folder tokowa yang telah Anda buat.
+
+Setting dan Import Database :
+
+1. Buat database misalnya: tokowa dengan phpMyAdmin Anda.
+2. Lalu Import file tokowa.sql
+3. Database harus masuk semua yah.
+
+Setting Konfigurasi dan Koneksi Database :
+
+1. Buka file database.php yang ada dalam folder application/Config
+2. Ubah settingan di dalam database.php tersebut
+3. 'hostname' => 'srv1153.hstgr.io',
+4. 'username' => 'u907350938_shop',
+5. 'password' => 'Powel123.,',
+6. 'database' => 'u907350938_shop',
+7. Rename 'database' sesuai yang anda buat
+8. Simpan kembali
+
+Mengakses Halaman Website dan Login ke Admin :
+
+1. Buka browser Anda
+2. Ketik alamat localhost/tokowa/login/admin
+3. Masuk Login ke Admin Area
+4. Username: admin
+5. Password: admin123
+6. di Menu Admin, Klik Pengaturan - Umum Rubah Semua Settingannya sesuai dengan Website anda
+7. Keluar, dan masuk lagi mengetikkan localhost/tokowa dan bisa coba untuk melakukan transaksi pembelian sebagai konsumen
+
+Terima Kasih ^_^
