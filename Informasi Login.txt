@@ -1,5 +1,0 @@
-Administrator 
-www.domain.com/login/admin
-
-User	: admin
-Pass	: admin123
