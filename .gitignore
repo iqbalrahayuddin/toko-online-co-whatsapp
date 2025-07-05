@@ -1,4 +1,2 @@
 # Abaikan file konfigurasi
-confi.php
-# Abaikan folder uploads
-/upload/
+config.php
