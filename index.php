@@ -1,424 +1,315 @@
 <?php
-require_once 'config.php';
+/**
+ * CodeIgniter
+ *
+ * An open source application development framework for PHP
+ *
+ * This content is released under the MIT License (MIT)
+ *
+ * Copyright (c) 2014 - 2019, British Columbia Institute of Technology
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * @package	CodeIgniter
+ * @author	EllisLab Dev Team
+ * @copyright	Copyright (c) 2008 - 2014, EllisLab, Inc. (https://ellislab.com/)
+ * @copyright	Copyright (c) 2014 - 2019, British Columbia Institute of Technology (https://bcit.ca/)
+ * @license	https://opensource.org/licenses/MIT	MIT License
+ * @link	https://codeigniter.com
+ * @since	Version 1.0.0
+ * @filesource
+ */
 
-// Menentukan halaman yang akan ditampilkan
-$page = isset($_GET['page']) ? $_GET['page'] : 'home';
+/*
+ *---------------------------------------------------------------
+ * APPLICATION ENVIRONMENT
+ *---------------------------------------------------------------
+ *
+ * You can load different configurations depending on your
+ * current environment. Setting the environment also influences
+ * things like logging and error reporting.
+ *
+ * This can be set to anything, but default usage is:
+ *
+ *     development
+ *     testing
+ *     production
+ *
+ * NOTE: If you change these, also change the error_reporting() code below
+ */
+	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development');
 
-// Fungsi untuk mengambil produk
-function get_products($db, $category_id = null) {
-    $sql = "SELECT p.*, c.name as category_name FROM products p JOIN categories c ON p.category_id = c.id";
-    if ($category_id) {
-        $cat_id = (int)$category_id;
-        $sql .= " WHERE p.category_id = $cat_id";
-    }
-    $sql .= " ORDER BY p.id DESC";
-    return mysqli_query($db, $sql);
+/*
+ *---------------------------------------------------------------
+ * ERROR REPORTING
+ *---------------------------------------------------------------
+ *
+ * Different environments will require different levels of error reporting.
+ * By default development will show errors but testing and live will hide them.
+ */
+switch (ENVIRONMENT)
+{
+	case 'development':
+		error_reporting(-1);
+		ini_set('display_errors', 0);
+	break;
+
+	case 'testing':
+	case 'production':
+		ini_set('display_errors', 0);
+		if (version_compare(PHP_VERSION, '5.3', '>='))
+		{
+			error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT & ~E_USER_NOTICE & ~E_USER_DEPRECATED);
+		}
+		else
+		{
+			error_reporting(E_ALL & ~E_NOTICE & ~E_STRICT & ~E_USER_NOTICE);
+		}
+	break;
+
+	default:
+		header('HTTP/1.1 503 Service Unavailable.', TRUE, 503);
+		echo 'The application environment is not set correctly.';
+		exit(1); // EXIT_ERROR
 }
 
-// Fungsi untuk mengambil kategori
-function get_categories($db) {
-    return mysqli_query($db, "SELECT * FROM categories ORDER BY name ASC");
-}
+/*
+ *---------------------------------------------------------------
+ * SYSTEM DIRECTORY NAME
+ *---------------------------------------------------------------
+ *
+ * This variable must contain the name of your "system" directory.
+ * Set the path if it is not in the same directory as this file.
+ */
+	$system_path = 'system';
 
-// Fungsi untuk mengambil detail produk
-function get_product_detail($db, $id) {
-    $product_id = (int)$id;
-    $sql = "SELECT p.*, c.name as category_name FROM products p JOIN categories c ON p.category_id = c.id WHERE p.id = $product_id";
-    $query = mysqli_query($db, $sql);
-    return mysqli_fetch_assoc($query);
-}
+/*
+ *---------------------------------------------------------------
+ * APPLICATION DIRECTORY NAME
+ *---------------------------------------------------------------
+ *
+ * If you want this front controller to use a different "application"
+ * directory than the default one you can set its name here. The directory
+ * can also be renamed or relocated anywhere on your server. If you do,
+ * use an absolute (full) server path.
+ * For more info please see the user guide:
+ *
+ * https://codeigniter.com/user_guide/general/managing_apps.html
+ *
+ * NO TRAILING SLASH!
+ */
+	$application_folder = 'application';
 
-?>
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($store_name); ?> - <?php echo ucfirst($page); ?></title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Poppins', sans-serif; }
-        .whatsapp-button {
-            background-color: #25D366;
-            transition: background-color 0.3s;
-        }
-        .whatsapp-button:hover {
-            background-color: #128C7E;
-        }
-    </style>
-</head>
-<body class="bg-gray-100">
-
-    <nav class="bg-white shadow-md sticky top-0 z-50">
-        <div class="container mx-auto px-6 py-4">
-            <a href="index.php" class="text-2xl font-bold text-gray-800"><?php echo htmlspecialchars($store_name); ?></a>
-        </div>
-    </nav>
-
-    <main class="container mx-auto px-6 py-8">
-        <?php
-        // Router sederhana
-        switch ($page) {
-            case 'checkout':
-                include 'views/checkout.php';
-                break;
-            case 'detail':
-                 include 'views/detail.php';
-                 break;
-            default:
-                include 'views/home.php';
-                break;
-        }
-        ?>
-    </main>
-
-    <footer class="bg-gray-800 text-white py-4 mt-8">
-        <div class="container mx-auto px-6 text-center">
-            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars($store_name); ?>. All Rights Reserved.</p>
-        </div>
-    </footer>
-
-</body>
-</html>
-
-<?php
-// Buat file-file view dalam folder terpisah atau di bawah ini untuk menjaga kerapian
-// Untuk kesederhanaan, saya akan membuat konten view di sini menggunakan HEREDOC
-
-// ==================================================================
-// KONTEN VIEW (Seharusnya di file terpisah seperti views/home.php)
-// ==================================================================
-if (!file_exists('views')) {
-    mkdir('views', 0777, true);
-}
-
-// views/home.php
-$home_content = <<<'EOD'
-<?php
-$categories = get_categories($db);
-$selected_cat = isset($_GET['category']) ? $_GET['category'] : null;
-$products = get_products($db, $selected_cat);
-?>
-<div class="flex flex-col md:flex-row gap-8">
-    <aside class="w-full md:w-1/4">
-        <div class="bg-white p-6 rounded-lg shadow-md">
-            <h3 class="text-xl font-semibold mb-4">Kategori</h3>
-            <ul class="space-y-2">
-                <li><a href="index.php" class="block text-gray-700 hover:text-indigo-600 <?php echo !$selected_cat ? 'font-bold text-indigo-600' : ''; ?>">Semua Produk</a></li>
-                <?php while($cat = mysqli_fetch_assoc($categories)): ?>
-                <li>
-                    <a href="index.php?category=<?php echo $cat['id']; ?>" class="block text-gray-700 hover:text-indigo-600 <?php echo ($selected_cat == $cat['id']) ? 'font-bold text-indigo-600' : ''; ?>">
-                        <?php echo htmlspecialchars($cat['name']); ?>
-                    </a>
-                </li>
-                <?php endwhile; ?>
-            </ul>
-        </div>
-    </aside>
-    <div class="w-full md:w-3/4">
-        <h2 class="text-3xl font-bold text-gray-800 mb-6">Produk Kami</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <?php if(mysqli_num_rows($products) > 0): ?>
-                <?php while($product = mysqli_fetch_assoc($products)): ?>
-                <div class="bg-white rounded-lg shadow-md overflow-hidden transform hover:scale-105 transition-transform duration-300">
-                    <a href="index.php?page=detail&id=<?php echo $product['id']; ?>">
-                        <img src="uploads/<?php echo htmlspecialchars($product['image'] ? $product['image'] : 'placeholder.png'); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="w-full h-56 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/600x400/e2e8f0/333?text=Gambar+Produk';">
-                        <div class="p-4">
-                            <h4 class="text-sm text-gray-500"><?php echo htmlspecialchars($product['category_name']); ?></h4>
-                            <h3 class="text-lg font-semibold text-gray-800 truncate"><?php echo htmlspecialchars($product['name']); ?></h3>
-                            <p class="text-xl font-bold text-indigo-600 mt-2"><?php echo format_rupiah($product['price']); ?></p>
-                        </div>
-                    </a>
-                </div>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <p class="col-span-full text-center text-gray-500">Tidak ada produk untuk ditampilkan.</p>
-            <?php endif; ?>
-        </div>
-    </div>
-</div>
-EOD;
-file_put_contents('views/home.php', $home_content);
+/*
+ *---------------------------------------------------------------
+ * VIEW DIRECTORY NAME
+ *---------------------------------------------------------------
+ *
+ * If you want to move the view directory out of the application
+ * directory, set the path to it here. The directory can be renamed
+ * and relocated anywhere on your server. If blank, it will default
+ * to the standard location inside your application directory.
+ * If you do move this, use an absolute (full) server path.
+ *
+ * NO TRAILING SLASH!
+ */
+	$view_folder = '';
 
 
-// views/detail.php
-$detail_content = <<<'EOD'
-<?php
-$product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($product_id == 0) {
-    echo "<p class='text-center text-red-500'>Produk tidak ditemukan.</p>";
-    return;
-}
-$product = get_product_detail($db, $product_id);
-if (!$product) {
-    echo "<p class='text-center text-red-500'>Produk tidak ditemukan.</p>";
-    return;
-}
-?>
-<div class="bg-white p-8 rounded-lg shadow-md">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div>
-            <img src="uploads/<?php echo htmlspecialchars($product['image'] ? $product['image'] : 'placeholder.png'); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="w-full h-auto rounded-lg shadow-sm" onerror="this.onerror=null;this.src='https://placehold.co/600x400/e2e8f0/333?text=Gambar+Produk';">
-        </div>
-        <div>
-            <h2 class="text-4xl font-bold text-gray-800"><?php echo htmlspecialchars($product['name']); ?></h2>
-            <p class="text-md text-gray-500 mt-2">Kategori: <span class="font-semibold"><?php echo htmlspecialchars($product['category_name']); ?></span></p>
-            <p class="text-4xl font-bold text-indigo-600 my-4"><?php echo format_rupiah($product['price']); ?></p>
-            
-            <div class="mt-4">
-                <h3 class="text-lg font-semibold text-gray-700">Deskripsi Produk</h3>
-                <p class="text-gray-600 mt-2 whitespace-pre-wrap"><?php echo nl2br(htmlspecialchars($product['description'])); ?></p>
-            </div>
-            
-            <div class="mt-4">
-                <p class="text-gray-600">Berat: <span class="font-semibold"><?php echo $product['weight']; ?> gram</span></p>
-                <p class="text-gray-600">Stok: <span class="font-semibold"><?php echo $product['stock']; ?></span></p>
-            </div>
+/*
+ * --------------------------------------------------------------------
+ * DEFAULT CONTROLLER
+ * --------------------------------------------------------------------
+ *
+ * Normally you will set your default controller in the routes.php file.
+ * You can, however, force a custom routing by hard-coding a
+ * specific controller class/function here. For most applications, you
+ * WILL NOT set your routing here, but it's an option for those
+ * special instances where you might want to override the standard
+ * routing in a specific front controller that shares a common CI installation.
+ *
+ * IMPORTANT: If you set the routing here, NO OTHER controller will be
+ * callable. In essence, this preference limits your application to ONE
+ * specific controller. Leave the function name blank if you need
+ * to call functions dynamically via the URI.
+ *
+ * Un-comment the $routing array below to use this feature
+ */
+	// The directory name, relative to the "controllers" directory.  Leave blank
+	// if your controller is not in a sub-directory within the "controllers" one
+	// $routing['directory'] = '';
 
-            <div class="mt-8">
-                <a href="index.php?page=checkout&id=<?php echo $product['id']; ?>" class="w-full flex items-center justify-center px-8 py-4 border border-transparent text-base font-medium rounded-md text-white whatsapp-button focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
-                    <svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.894 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.886-.001 2.267.651 4.383 1.88 6.166l-1.29 4.721 4.793-1.262z"/></svg>
-                    Beli Sekarang via WhatsApp
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
-EOD;
-file_put_contents('views/detail.php', $detail_content);
+	// The controller class file name.  Example:  mycontroller
+	// $routing['controller'] = '';
+
+	// The controller function you wish to be called.
+	// $routing['function']	= '';
 
 
-// views/checkout.php
-$checkout_content = <<<'EOD'
-<?php
-$product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($product_id == 0) {
-    echo "<p class='text-center text-red-500'>Produk tidak valid.</p>";
-    return;
-}
-$product = get_product_detail($db, $product_id);
-if (!$product) {
-    echo "<p class='text-center text-red-500'>Produk tidak ditemukan.</p>";
-    return;
-}
-?>
-<div class="max-w-4xl mx-auto">
-    <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Checkout Pesanan</h2>
-    <div class="bg-white p-8 rounded-lg shadow-md">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-            <!-- Rincian Produk -->
-            <div>
-                <h3 class="text-xl font-semibold mb-4">Ringkasan Pesanan</h3>
-                <div class="flex items-center space-x-4 border-b pb-4">
-                    <img src="uploads/<?php echo htmlspecialchars($product['image'] ? $product['image'] : 'placeholder.png'); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="w-24 h-24 object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/100x100/e2e8f0/333?text=...';">
-                    <div>
-                        <h4 class="font-semibold text-lg"><?php echo htmlspecialchars($product['name']); ?></h4>
-                        <p class="text-gray-600"><?php echo format_rupiah($product['price']); ?></p>
-                        <p class="text-sm text-gray-500">Berat: <?php echo $product['weight']; ?> gr</p>
-                    </div>
-                </div>
-                <div class="mt-4 space-y-2 text-lg">
-                     <div class="flex justify-between">
-                        <span>Subtotal</span>
-                        <span class="font-semibold"><?php echo format_rupiah($product['price']); ?></span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>Ongkos Kirim</span>
-                        <span id="shipping-cost" class="font-semibold">Rp 0</span>
-                    </div>
-                    <div class="flex justify-between text-xl font-bold pt-2 border-t">
-                        <span>Total</span>
-                        <span id="total-cost" class="text-indigo-600"><?php echo format_rupiah($product['price']); ?></span>
-                    </div>
-                </div>
-            </div>
+/*
+ * -------------------------------------------------------------------
+ *  CUSTOM CONFIG VALUES
+ * -------------------------------------------------------------------
+ *
+ * The $assign_to_config array below will be passed dynamically to the
+ * config class when initialized. This allows you to set custom config
+ * items or override any default config values found in the config.php file.
+ * This can be handy as it permits you to share one application between
+ * multiple front controller files, with each file containing different
+ * config values.
+ *
+ * Un-comment the $assign_to_config array below to use this feature
+ */
+	// $assign_to_config['name_of_config_item'] = 'value of config item';
 
-            <!-- Form Alamat -->
-            <div>
-                <h3 class="text-xl font-semibold mb-4">Alamat Pengiriman</h3>
-                <form id="checkout-form" class="space-y-4">
-                    <input type="hidden" id="product-name" value="<?php echo htmlspecialchars($product['name']); ?>">
-                    <input type="hidden" id="product-price" value="<?php echo $product['price']; ?>">
-                    <input type="hidden" id="product-weight" value="<?php echo $product['weight']; ?>">
-                    
-                    <div>
-                        <label for="customer-name" class="block text-sm font-medium text-gray-700">Nama Lengkap</label>
-                        <input type="text" id="customer-name" name="customer_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" required>
-                    </div>
-                    <div>
-                        <label for="customer-phone" class="block text-sm font-medium text-gray-700">No. HP (WhatsApp)</label>
-                        <input type="tel" id="customer-phone" name="customer_phone" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="08123456789" required>
-                    </div>
-                    <div>
-                        <label for="province" class="block text-sm font-medium text-gray-700">Provinsi</label>
-                        <select id="province" name="province" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" required>
-                            <option value="">Pilih Provinsi...</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="regency" class="block text-sm font-medium text-gray-700">Kabupaten/Kota</label>
-                        <select id="regency" name="regency" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" required disabled>
-                            <option value="">Pilih Kabupaten/Kota...</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="district" class="block text-sm font-medium text-gray-700">Kecamatan</label>
-                        <select id="district" name="district" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" required disabled>
-                            <option value="">Pilih Kecamatan...</option>
-                        </select>
-                    </div>
-                     <div>
-                        <label for="village" class="block text-sm font-medium text-gray-700">Desa/Kelurahan</label>
-                        <select id="village" name="village" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" required disabled>
-                            <option value="">Pilih Desa/Kelurahan...</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="full-address" class="block text-sm font-medium text-gray-700">Alamat Lengkap (Nama Jalan, No. Rumah, RT/RW)</label>
-                        <textarea id="full-address" name="full_address" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Contoh: Jl. Merdeka No. 123, RT 01/RW 05" required></textarea>
-                    </div>
 
-                    <button type="submit" id="whatsapp-order-btn" class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white whatsapp-button focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50" disabled>
-                        <svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.894 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.886-.001 2.267.651 4.383 1.88 6.166l-1.29 4.721 4.793-1.262z"/></svg>
-                        Pesan via WhatsApp
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const apiBaseUrl = 'https://www.emsifa.com/api-wilayah-indonesia/api/'; // API Wilayah Alternatif
-    const provinceSelect = document.getElementById('province');
-    const regencySelect = document.getElementById('regency');
-    const districtSelect = document.getElementById('district');
-    const villageSelect = document.getElementById('village');
-    const form = document.getElementById('checkout-form');
-    const whatsappBtn = document.getElementById('whatsapp-order-btn');
+// --------------------------------------------------------------------
+// END OF USER CONFIGURABLE SETTINGS.  DO NOT EDIT BELOW THIS LINE
+// --------------------------------------------------------------------
 
-    const shippingCostEl = document.getElementById('shipping-cost');
-    const totalCostEl = document.getElementById('total-cost');
-    const productPrice = parseFloat(document.getElementById('product-price').value);
-    const productWeight = parseFloat(document.getElementById('product-weight').value);
-    const shippingCostPerKg = <?php echo $shipping_cost_per_kg; ?>;
+/*
+ * ---------------------------------------------------------------
+ *  Resolve the system path for increased reliability
+ * ---------------------------------------------------------------
+ */
 
-    // Fetch Provinces
-    fetch(`${apiBaseUrl}provinces.json`)
-        .then(response => response.json())
-        .then(provinces => {
-            provinces.forEach(province => {
-                const option = new Option(province.name, province.id);
-                provinceSelect.add(option);
-            });
-        });
+	// Set the current directory correctly for CLI requests
+	if (defined('STDIN'))
+	{
+		chdir(dirname(__FILE__));
+	}
 
-    function resetSelect(selectElement, placeholder) {
-        selectElement.innerHTML = `<option value="">${placeholder}</option>`;
-        selectElement.disabled = true;
-    }
+	if (($_temp = realpath($system_path)) !== FALSE)
+	{
+		$system_path = $_temp.DIRECTORY_SEPARATOR;
+	}
+	else
+	{
+		// Ensure there's a trailing slash
+		$system_path = strtr(
+			rtrim($system_path, '/\\'),
+			'/\\',
+			DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR
+		).DIRECTORY_SEPARATOR;
+	}
 
-    provinceSelect.addEventListener('change', function() {
-        resetSelect(regencySelect, 'Pilih Kabupaten/Kota...');
-        resetSelect(districtSelect, 'Pilih Kecamatan...');
-        resetSelect(villageSelect, 'Pilih Desa/Kelurahan...');
-        if (!this.value) return;
+	// Is the system path correct?
+	if ( ! is_dir($system_path))
+	{
+		header('HTTP/1.1 503 Service Unavailable.', TRUE, 503);
+		echo 'Your system folder path does not appear to be set correctly. Please open the following file and correct this: '.pathinfo(__FILE__, PATHINFO_BASENAME);
+		exit(3); // EXIT_CONFIG
+	}
 
-        fetch(`${apiBaseUrl}regencies/${this.value}.json`)
-            .then(response => response.json())
-            .then(regencies => {
-                regencySelect.disabled = false;
-                regencies.forEach(regency => {
-                    const option = new Option(regency.name, regency.id);
-                    regencySelect.add(option);
-                });
-            });
-    });
+/*
+ * -------------------------------------------------------------------
+ *  Now that we know the path, set the main path constants
+ * -------------------------------------------------------------------
+ */
+	// The name of THIS file
+	define('SELF', pathinfo(__FILE__, PATHINFO_BASENAME));
 
-    regencySelect.addEventListener('change', function() {
-        resetSelect(districtSelect, 'Pilih Kecamatan...');
-        resetSelect(villageSelect, 'Pilih Desa/Kelurahan...');
-        if (!this.value) return;
+	// Path to the system directory
+	define('BASEPATH', $system_path);
 
-        fetch(`${apiBaseUrl}districts/${this.value}.json`)
-            .then(response => response.json())
-            .then(districts => {
-                districtSelect.disabled = false;
-                districts.forEach(district => {
-                    const option = new Option(district.name, district.id);
-                    districtSelect.add(option);
-                });
-            });
-    });
-    
-    districtSelect.addEventListener('change', function() {
-        resetSelect(villageSelect, 'Pilih Desa/Kelurahan...');
-        if (!this.value) return;
+	// Path to the front controller (this file) directory
+	define('FCPATH', dirname(__FILE__).DIRECTORY_SEPARATOR);
 
-        fetch(`${apiBaseUrl}villages/${this.value}.json`)
-            .then(response => response.json())
-            .then(villages => {
-                villageSelect.disabled = false;
-                villages.forEach(village => {
-                    const option = new Option(village.name, village.id);
-                    villageSelect.add(option);
-                });
-            });
-    });
+	// Name of the "system" directory
+	define('SYSDIR', basename(BASEPATH));
 
-    villageSelect.addEventListener('change', function() {
-        if (this.value) {
-            // Hitung Ongkir (Simulasi)
-            const weightInKg = productWeight / 1000;
-            const calculatedShipping = Math.ceil(weightInKg) * shippingCostPerKg; // Pembulatan ke atas
-            const total = productPrice + calculatedShipping;
+	// The path to the "application" directory
+	if (is_dir($application_folder))
+	{
+		if (($_temp = realpath($application_folder)) !== FALSE)
+		{
+			$application_folder = $_temp;
+		}
+		else
+		{
+			$application_folder = strtr(
+				rtrim($application_folder, '/\\'),
+				'/\\',
+				DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR
+			);
+		}
+	}
+	elseif (is_dir(BASEPATH.$application_folder.DIRECTORY_SEPARATOR))
+	{
+		$application_folder = BASEPATH.strtr(
+			trim($application_folder, '/\\'),
+			'/\\',
+			DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR
+		);
+	}
+	else
+	{
+		header('HTTP/1.1 503 Service Unavailable.', TRUE, 503);
+		echo 'Your application folder path does not appear to be set correctly. Please open the following file and correct this: '.SELF;
+		exit(3); // EXIT_CONFIG
+	}
 
-            shippingCostEl.textContent = 'Rp ' + calculatedShipping.toLocaleString('id-ID');
-            totalCostEl.textContent = 'Rp ' + total.toLocaleString('id-ID');
-            whatsappBtn.disabled = false;
-        } else {
-            whatsappBtn.disabled = true;
-        }
-    });
+	define('APPPATH', $application_folder.DIRECTORY_SEPARATOR);
 
-    form.addEventListener('submit', function(e) {
-        e.preventDefault();
+	// The path to the "views" directory
+	if ( ! isset($view_folder[0]) && is_dir(APPPATH.'views'.DIRECTORY_SEPARATOR))
+	{
+		$view_folder = APPPATH.'views';
+	}
+	elseif (is_dir($view_folder))
+	{
+		if (($_temp = realpath($view_folder)) !== FALSE)
+		{
+			$view_folder = $_temp;
+		}
+		else
+		{
+			$view_folder = strtr(
+				rtrim($view_folder, '/\\'),
+				'/\\',
+				DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR
+			);
+		}
+	}
+	elseif (is_dir(APPPATH.$view_folder.DIRECTORY_SEPARATOR))
+	{
+		$view_folder = APPPATH.strtr(
+			trim($view_folder, '/\\'),
+			'/\\',
+			DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR
+		);
+	}
+	else
+	{
+		header('HTTP/1.1 503 Service Unavailable.', TRUE, 503);
+		echo 'Your view folder path does not appear to be set correctly. Please open the following file and correct this: '.SELF;
+		exit(3); // EXIT_CONFIG
+	}
 
-        const customerName = document.getElementById('customer-name').value;
-        const customerPhone = document.getElementById('customer-phone').value;
-        const province = provinceSelect.options[provinceSelect.selectedIndex].text;
-        const regency = regencySelect.options[regencySelect.selectedIndex].text;
-        const district = districtSelect.options[districtSelect.selectedIndex].text;
-        const village = villageSelect.options[villageSelect.selectedIndex].text;
-        const fullAddress = document.getElementById('full-address').value;
+	define('VIEWPATH', $view_folder.DIRECTORY_SEPARATOR);
 
-        const productName = document.getElementById('product-name').value;
-        const finalTotal = totalCostEl.textContent;
-        const finalShipping = shippingCostEl.textContent;
-
-        const waNumber = '<?php echo $whatsapp_number; ?>';
-        
-        let message = `Halo *<?php echo htmlspecialchars($store_name); ?>*, saya mau pesan:\n\n`;
-        message += `*Produk:* ${productName}\n`;
-        message += `*Harga:* <?php echo format_rupiah($product['price']); ?>\n\n`;
-        message += `*--- Data Pengiriman ---*\n`;
-        message += `*Nama:* ${customerName}\n`;
-        message += `*No. HP:* ${customerPhone}\n`;
-        message += `*Alamat:* ${fullAddress}, ${village}, ${district}, ${regency}, ${province}\n\n`;
-        message += `*--- Ringkasan Biaya ---*\n`;
-        message += `*Ongkos Kirim:* ${finalShipping}\n`;
-        message += `*Total Pembayaran:* *${finalTotal}*\n\n`;
-        message += `Mohon info lanjut untuk proses pembayarannya. Terima kasih.`;
-
-        const encodedMessage = encodeURIComponent(message);
-        const whatsappUrl = `https://api.whatsapp.com/send?phone=${waNumber}&text=${encodedMessage}`;
-
-        window.open(whatsappUrl, '_blank');
-    });
-});
-</script>
-EOD;
-file_put_contents('views/checkout.php', $checkout_content);
-?>
+/*
+ * --------------------------------------------------------------------
+ * LOAD THE BOOTSTRAP FILE
+ * --------------------------------------------------------------------
+ *
+ * And away we go...
+ */
+require_once BASEPATH.'core/CodeIgniter.php';

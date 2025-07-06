@@ -1,0 +1,41 @@
+Login dan Upload ke CPANEL Anda
+
+1. Silakan login ke CPANEL Anda
+2. Dengan File Manager, upload file ZIP ke public_html atau bisa buatkan subdomain 
+3. Tunggu sampai proses upload selesai yah.
+4. Lalu Extract di folder public_html Anda atau folder subdomain anda.
+
+Membuat dan Mengimport Database
+
+Dalam hal ini saya Anggap teman-teman sudah paham bagaimana membuat database, user dan setting priviledge di hosting.
+
+1. Buat database, user, password dan berikan priviledge
+2. Buka fitur phpMyADMIN di CPANEL Anda.
+3. Pilih database yang baru saja Anda buat.
+4. Lalu Import file tokowa.sql
+5. Mantap Database sudah diimport
+
+Setting Konfigurasi dan Koneksi Database
+
+1. Buka file database.php yang ada dalam folder application/Config
+2. Ubah settingan di dalam database.php contoh :
+3. 'hostname' => 'localhost',
+4. 'username' => 'vaneweb_tokowa', (username anda)
+5. 'password' => 'feftfxhanbvvdvgdghv', (password anda - saya menggunakan generate password)
+6. 'database' => 'vaneweb_tokowa', (database anda)
+7. Rename 'database' sesuai yang anda buat
+8. Simpan kembali
+
+Mengakses Halaman Website dan Login ke Admin
+
+1. Buka browser Anda
+2. Ketik alamat https://namawebanda.com/login/admin atau https://namasubdomain.namawebanda.com/login/admin
+3. Masuk Login ke Admin Area
+4. Username: admin
+5. Password: admin123
+6. di Menu Admin, Klik Pengaturan - Umum Rubah Semua Settingannya sesuai dengan Website anda
+7. Keluar, dan masuk lagi mengetikkan https://namawebanda.com dan bisa coba untuk melakukan transaksi pembelian sebagai konsumen
+
+Selamat Website Sudah bisa diakses
+
+Terima Kasih ^_^
