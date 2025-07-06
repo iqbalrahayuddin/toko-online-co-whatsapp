@@ -1,167 +1,121 @@
 <?php
-//======================================================================
-// BAGIAN 1: LOGIKA PHP & MANAJEMEN KERANJANG
-//======================================================================
-session_start();
+require_once 'config.php';
 
-// --- Konfigurasi Dasar ---
-$nama_toko = 'TokoKita';
-$nomor_admin_wa = '6281234567890'; // Untuk notifikasi COD via WhatsApp
-
-// --- KONFIGURASI TRIPAY (WAJIB DIISI!) ---
-// Ganti dengan kredensial Tripay Anda. Dapatkan dari dashboard Tripay.
-$tripayApiKey       = 'YJYwaY2JU9i307C6jLoUR1cJL3JkhnLdWGkCMSX3'; // Ganti dengan API Key Anda
-$tripayPrivateKey   = '3MZsL-DmOmf-wLKuB-GcIw9-2hU3x'; // Ganti dengan Private Key Anda
-$tripayMerchantCode = 'T37380';            // Ganti dengan Kode Merchant Anda
-$tripayApiUrl       = 'https://tripay.co.id/api/transaction/create'; // URL Sandbox
+// --- Mengambil semua pengaturan dari DB ---
+$app_name = get_setting($mysqli, 'app_name');
+$app_description = get_setting($mysqli, 'app_description');
+$app_logo = get_setting($mysqli, 'app_logo');
+$app_icon = get_setting($mysqli, 'app_icon');
+$nomor_admin_wa = get_setting($mysqli, 'nomor_admin_wa');
+$rajaongkirApiKey = get_setting($mysqli, 'rajaongkir_api_key');
+$rajaongkirOriginId = get_setting($mysqli, 'rajaongkir_origin_id');
+$rajaongkirApiUrl_Ongkir = 'https://rajaongkir.komerce.id/api/v1/calculate/domestic-cost';
+$rajaongkirApiUrl_KodePos = 'https://rajaongkir.komerce.id/api/v1/destination/domestic-destination';
+$tripayApiKey = get_setting($mysqli, 'tripay_api_key');
+$tripayPrivateKey = get_setting($mysqli, 'tripay_private_key');
+$tripayMerchantCode = get_setting($mysqli, 'tripay_merchant_code');
+$tripayApiUrl = '	https://tripay.co.id/api/transaction/create';
 
 // --- Inisialisasi Keranjang ---
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-// --- Data Produk Dummy ---
-$products_all = [
-    1 => ['name' => 'Kamera Mirrorless Alpha', 'price' => 9500000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Kamera', 'category' => 'Elektronik', 'rating' => 5],
-    2 => ['name' => 'Laptop Gaming Legion', 'price' => 18200000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Laptop', 'category' => 'Elektronik', 'rating' => 5],
-    3 => ['name' => 'Sepatu Lari Ultraboost', 'price' => 2800000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Sepatu', 'category' => 'Fashion', 'rating' => 4],
-    4 => ['name' => 'T-Shirt Basic Cotton', 'price' => 150000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=T-Shirt', 'category' => 'Fashion', 'rating' => 4],
-    5 => ['name' => 'Jam Tangan Elegan', 'price' => 1200000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Jam', 'category' => 'Aksesoris', 'rating' => 5],
-    6 => ['name' => 'Buku "Seni Berpikir"', 'price' => 98000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Buku', 'category' => 'Buku', 'rating' => 5],
-    7 => ['name' => 'Meja Kerja Minimalis', 'price' => 850000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Meja', 'category' => 'Furnitur', 'rating' => 4],
-    8 => ['name' => 'Lampu Belajar LED', 'price' => 250000, 'image' => 'https://placehold.co/600x400/EFEFEF/AAAAAA&text=Lampu', 'category' => 'Furnitur', 'rating' => 4],
-];
-
-// --- Logika Pencarian ---
+// --- Logika Pencarian Produk dari DB ---
 $search_query = isset($_GET['q']) ? trim($_GET['q']) : '';
-$products = $products_all;
+$sql_products = "SELECT * FROM products";
+$params = [];
+$types = '';
 if (!empty($search_query)) {
-    $products = array_filter($products_all, function($product) use ($search_query) {
-        return stripos($product['name'], $search_query) !== false;
-    });
+    $sql_products .= " WHERE name LIKE ?";
+    $search_param = "%" . $search_query . "%";
+    $params[] = &$search_param;
+    $types .= 's';
 }
-
-// --- Fungsi Bantuan ---
-function format_rupiah($number) {
-    return 'Rp ' . number_format($number, 0, ',', '.');
+$sql_products .= " ORDER BY id DESC";
+$stmt_products = $mysqli->prepare($sql_products);
+if ($params) {
+    $stmt_products->bind_param($types, ...$params);
 }
+$stmt_products->execute();
+$products_result = $stmt_products->get_result();
+// ---
 
-// --- Logika Penanganan Aksi (Action Handler) ---
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
-// ... (Logika add, update, remove cart tetap sama)
-if ($action === 'add' || $action === 'buy_now') { $product_id = (int)$_POST['product_id']; if (isset($products_all[$product_id])) { if (isset($_SESSION['cart'][$product_id])) { $_SESSION['cart'][$product_id]['quantity']++; } else { $_SESSION['cart'][$product_id] = ['id' => $product_id, 'quantity' => 1]; } } if ($action === 'buy_now') { header('Location: index.php?page=checkout'); exit(); } header('Location: index.php?status=added'); exit(); }
+// Mini-API untuk Pencarian Kode Pos
+if ($action === 'get_kodepos') {
+    header('Content-Type: application/json');
+    $kecamatan = trim($_POST['kecamatan'] ?? ''); $kelurahan = trim($_POST['kelurahan'] ?? '');
+    if (empty($kecamatan) || empty($kelurahan)) { exit(json_encode(['success' => false])); }
+    $keyword_to_search = $kelurahan . ', ' . $kecamatan;
+    $url_to_fetch = $rajaongkirApiUrl_KodePos . '?search=' . urlencode($keyword_to_search) . '&limit=1';
+    $curl = curl_init(); curl_setopt_array($curl, [CURLOPT_URL => $url_to_fetch, CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ["key: " . $rajaongkirApiKey]]);
+    $response = curl_exec($curl); curl_close($curl);
+    $data = json_decode($response, true);
+    if (isset($data['data'][0]['zip_code'])) { echo json_encode(['success' => true, 'postal_code' => $data['data'][0]['zip_code']]); } 
+    else { echo json_encode(['success' => false]); }
+    exit();
+}
+// Mini-API untuk Cek Ongkir
+if ($action === 'calculate_ongkir') {
+    header('Content-Type: application/json');
+    $destination = $_POST['destination'] ?? '0';
+    if (empty($_SESSION['cart'])) { exit(json_encode(['success' => false, 'message' => 'Keranjang kosong.'])); }
+    $curl = curl_init();
+    curl_setopt_array($curl, [
+        CURLOPT_URL => $rajaongkirApiUrl_Ongkir, CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => "POST",
+        CURLOPT_POSTFIELDS => http_build_query(['origin' => $rajaongkirOriginId, 'destination' => $destination, 'weight' => 1000, 'courier' => 'jne:sicepat:jnt:ninja:anteraja:pos']),
+        CURLOPT_HTTPHEADER => ["Content-Type: application/x-www-form-urlencoded", "key: " . $rajaongkirApiKey],
+    ]);
+    $response = curl_exec($curl); curl_close($curl); echo $response;
+    exit();
+}
+
+// Action handler lain: add, update, remove cart
+if ($action === 'add' || $action === 'buy_now') { $product_id = (int)$_POST['product_id']; if (isset($_SESSION['cart'][$product_id])) { $_SESSION['cart'][$product_id]['quantity']++; } else { $_SESSION['cart'][$product_id] = ['id' => $product_id, 'quantity' => 1]; } if ($action === 'buy_now') { header('Location: index.php?page=checkout'); exit(); } header('Location: index.php?status=added'); exit(); }
 if ($action === 'update_cart') { $product_id = (int)$_POST['product_id']; $quantity = (int)$_POST['quantity']; if (isset($_SESSION['cart'][$product_id])) { if ($quantity > 0) { $_SESSION['cart'][$product_id]['quantity'] = $quantity; } else { unset($_SESSION['cart'][$product_id]); } } header('Location: index.php?page=cart'); exit(); }
 if ($action === 'remove_from_cart') { $product_id = (int)$_GET['id']; if (isset($_SESSION['cart'][$product_id])) { unset($_SESSION['cart'][$product_id]); } header('Location: index.php?page=cart'); exit(); }
 
-// 4. Aksi Proses Checkout
+// Proses Checkout Utama
 if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
-    // Validasi data umum
-    $nama = htmlspecialchars(trim($_POST['nama']));
-    $email = htmlspecialchars(trim($_POST['email']));
-    $whatsapp = htmlspecialchars(trim($_POST['whatsapp']));
-    $provinsi = htmlspecialchars(trim($_POST['provinsi_text']));
-    $kota = htmlspecialchars(trim($_POST['kota_text']));
-    $kecamatan = htmlspecialchars(trim($_POST['kecamatan_text']));
-    $kelurahan = htmlspecialchars(trim($_POST['kelurahan_text']));
-    $alamat = htmlspecialchars(trim($_POST['alamat']));
-    $payment_method = $_POST['payment_method'] ?? '';
+    $nama = htmlspecialchars(trim($_POST['nama'])); $email = htmlspecialchars(trim($_POST['email'])); $whatsapp = htmlspecialchars(trim($_POST['whatsapp'])); $alamat = htmlspecialchars(trim($_POST['alamat']));
+    $provinsi = htmlspecialchars(trim($_POST['provinsi_text'])); $kota = htmlspecialchars(trim($_POST['kota_text'])); $kecamatan = htmlspecialchars(trim($_POST['kecamatan_text'])); $kelurahan = htmlspecialchars(trim($_POST['kelurahan_text']));
+    $payment_method = $_POST['payment_method'] ?? ''; $kodepos = htmlspecialchars(trim($_POST['kodepos'])); $shipping_details = htmlspecialchars(trim($_POST['shipping_details'])); $shipping_cost = (int)($_POST['shipping_cost'] ?? 0);
 
-    // Validasi field
-    if (empty($nama) || empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL) || empty($whatsapp) || empty($provinsi) || empty($kota) || empty($kecamatan) || empty($kelurahan) || empty($alamat) || empty($payment_method)) {
-        header('Location: index.php?page=checkout&error=1');
-        exit();
+    if (empty($nama) || empty($email) || empty($whatsapp) || empty($alamat) || empty($payment_method) || empty($kodepos) || empty($shipping_details) || $shipping_cost <= 0) {
+        header('Location: index.php?page=checkout&error=1'); exit();
     }
     
-    // Hitung total harga dan siapkan item pesanan
-    $total_harga = 0;
-    $order_items = [];
-    foreach ($_SESSION['cart'] as $item) {
-        $product = $products_all[$item['id']];
-        $subtotal = $product['price'] * $item['quantity'];
-        $total_harga += $subtotal;
-        $order_items[] = [
-            'sku'       => 'P' . $item['id'],
-            'name'      => $product['name'],
-            'price'     => $product['price'],
-            'quantity'  => $item['quantity']
-        ];
+    $subtotal_produk = 0; $order_items = [];
+    foreach ($_SESSION['cart'] as $item) { 
+        $stmt_checkout = $mysqli->prepare("SELECT * FROM products WHERE id = ?");
+        $stmt_checkout->bind_param("i", $item['id']); $stmt_checkout->execute();
+        $product = $stmt_checkout->get_result()->fetch_assoc(); $stmt_checkout->close();
+        if($product) {
+            $subtotal_produk += $product['price'] * $item['quantity']; 
+            $order_items[] = ['sku' => 'P' . $item['id'], 'name' => $product['name'], 'price' => $product['price'], 'quantity' => $item['quantity']]; 
+        }
     }
+    $grand_total = $subtotal_produk + $shipping_cost;
 
-    // --- LOGIKA BERDASARKAN METODE PEMBAYARAN ---
-
-    // A. Jika Bayar di Tempat (COD)
     if ($payment_method === 'COD') {
-        $pesan = "Halo *{$nama_toko}*, saya pesan untuk *BAYAR DI TEMPAT (COD)*:\n\n";
-        foreach ($_SESSION['cart'] as $item) {
-            $product = $products_all[$item['id']];
-            $pesan .= "Produk: *{$product['name']}*\n";
-            $pesan .= "Jumlah: {$item['quantity']}\n\n";
-        }
-        $pesan .= "--------------------------\n";
-        $pesan .= "Total Pesanan: *" . format_rupiah($total_harga) . "*\n";
-        $pesan .= "--------------------------\n\n";
-        $pesan .= "*Data Pemesan:*\n";
-        $pesan .= "Nama: {$nama}\nNo. WA: {$whatsapp}\nEmail: {$email}\n\n";
-        $pesan .= "*Alamat Pengiriman:*\n{$alamat}\nKel/Desa: {$kelurahan}\nKec: {$kecamatan}\nKota/Kab: {$kota}\nProv: {$provinsi}\n\n";
-        $pesan .= "Mohon segera diproses. Terima kasih.";
-
-        $_SESSION['cart'] = []; // Kosongkan keranjang
-        $encoded_pesan = urlencode($pesan);
-        header("Location: https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text={$encoded_pesan}");
-        exit();
+        $pesan = "Halo *{$app_name}*, saya pesan untuk *BAYAR DI TEMPAT (COD)*:\n\n--- DETAIL PESANAN ---\n";
+        foreach ($order_items as $order_item) { $pesan .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
+        $pesan .= "\nSubtotal Produk: " . format_rupiah($subtotal_produk) . "\nPengiriman: {$shipping_details} (" . format_rupiah($shipping_cost) . ")\n";
+        $pesan .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($grand_total) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$nama}\n{$whatsapp}\n\n{$alamat}\nKel. {$kelurahan}, Kec. {$kecamatan}\n{$kota}, {$provinsi} {$kodepos}\n\nMohon segera diproses. Terima kasih.";
+        $_SESSION['cart'] = []; header("Location: https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text=" . urlencode($pesan)); exit();
     }
 
-    // B. Jika Transfer Online (Tripay)
     if ($payment_method === 'TRIPAY') {
-        $merchantRef = 'INV-' . time(); // Referensi unik untuk transaksi
-        
-        // Membuat signature
-        $signature = hash_hmac('sha256', $tripayMerchantCode . $merchantRef . $total_harga, $tripayPrivateKey);
-
-        $data = [
-            'method'         => 'BRIVA', // Contoh: bisa diganti dengan channel lain
-            'merchant_ref'   => $merchantRef,
-            'amount'         => $total_harga,
-            'customer_name'  => $nama,
-            'customer_email' => $email,
-            'customer_phone' => $whatsapp,
-            'order_items'    => $order_items,
-            'callback_url'   => 'https://domainanda.com/callback', // Ganti dengan URL callback Anda
-            'return_url'     => 'https://domainanda.com/redirect',   // Ganti dengan URL redirect Anda
-            'expired_time'   => (time() + (24 * 60 * 60)), // 24 jam
-            'signature'      => $signature
-        ];
-
-        $curl = curl_init();
-        curl_setopt_array($curl, [
-            CURLOPT_FRESH_CONNECT  => true,
-            CURLOPT_URL            => $tripayApiUrl,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER         => false,
-            CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $tripayApiKey],
-            CURLOPT_FAILONERROR    => false,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => http_build_query($data)
-        ]);
-        
-        $response = curl_exec($curl);
-        $error = curl_error($curl);
-        curl_close($curl);
-
-        $response_data = json_decode($response, true);
-
-        if ($response_data && $response_data['success'] == true) {
-            $_SESSION['cart'] = []; // Kosongkan keranjang
-            // Redirect ke halaman pembayaran Tripay
-            header('Location: ' . $response_data['data']['checkout_url']);
-            exit();
-        } else {
-            // Gagal membuat transaksi Tripay, kembali ke checkout dengan pesan error
-            $error_message = $response_data['message'] ?? 'Gagal menghubungi payment gateway.';
-            header('Location: index.php?page=checkout&error=tripay&msg=' . urlencode($error_message));
-            exit();
-        }
+        $merchantRef = 'INV-' . time(); $order_items[] = ['sku' => 'ONGKIR', 'name' => 'Biaya Pengiriman', 'price' => $shipping_cost, 'quantity' => 1];
+        $signature = hash_hmac('sha256', $tripayMerchantCode . $merchantRef . $grand_total, $tripayPrivateKey);
+        $data = ['method' => 'BRIVA', 'merchant_ref' => $merchantRef, 'amount' => $grand_total, 'customer_name' => $nama, 'customer_email' => $email, 'customer_phone' => $whatsapp, 'order_items' => $order_items, 'return_url' => 'https://domainanda.com/redirect', 'expired_time' => (time() + (24 * 60 * 60)), 'signature' => $signature ];
+        $curl = curl_init(); curl_setopt_array($curl, [ CURLOPT_URL => $tripayApiUrl, CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tripayApiKey], CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query($data) ]);
+        $response = curl_exec($curl); curl_close($curl); $response_data = json_decode($response, true);
+        if ($response_data && $response_data['success'] == true) { $_SESSION['cart'] = []; header('Location: ' . $response_data['data']['checkout_url']); } 
+        else { header('Location: index.php?page=checkout&error=tripay&msg=' . urlencode($response_data['message'] ?? 'Gateway error.')); }
+        exit();
     }
 }
 
@@ -170,238 +124,222 @@ $page = $_GET['page'] ?? 'home';
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <!--======================================================================-->
-    <!-- BAGIAN 2: HTML HEAD & STYLING                                      -->
-    <!--======================================================================-->
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($nama_toko) ?> - Toko Online Sederhana</title>
-    
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= htmlspecialchars($app_name) ?></title>
+    <meta name="description" content="<?= htmlspecialchars($app_description) ?>">
+    <link rel="icon" href="uploads/<?= htmlspecialchars($app_icon) ?>" type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-
     <style>
         body { font-family: 'Poppins', sans-serif; background-color: #f8f9fa; }
         .navbar { box-shadow: 0 2px 4px rgba(0,0,0,.1); background-color: #ffffff; }
-        .navbar-brand { font-weight: 700; color: #333 !important; }
-        .product-card { border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,.05); transition: transform .3s ease, box-shadow .3s ease; overflow: hidden; border: none; }
+        .product-card { border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,.05); transition: transform .3s ease, box-shadow .3s ease; border: none; }
         .product-card:hover { transform: translateY(-8px); box-shadow: 0 8px 25px rgba(0,0,0,.1); }
         .product-card img { aspect-ratio: 4 / 3; object-fit: cover; }
-        .product-title { font-weight: 600; color: #333; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .product-price { font-weight: 700; color: #0d6efd; font-size: 1.2rem; }
         .footer { background-color: #343a40; color: white; padding: 2rem 0; margin-top: 4rem; }
         .cart-icon { position: relative; }
         .cart-badge { position: absolute; top: -5px; right: -10px; padding: 0.25em 0.5em; font-size: 0.7rem; font-weight: bold; border-radius: 50rem; }
-        .form-check-input:checked { background-color: #0d6efd; border-color: #0d6efd; }
-        .form-check-label { cursor: pointer; }
-        .payment-option { border: 1px solid #dee2e6; border-radius: .375rem; padding: 1rem; transition: border-color .15s ease-in-out,box-shadow .15s ease-in-out; }
-        .payment-option:has(.form-check-input:checked) { border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
+        .payment-option, .shipping-option { border: 1px solid #dee2e6; border-radius: .375rem; padding: 1rem; transition: all .15s ease-in-out; cursor:pointer; }
+        .payment-option:has(.form-check-input:checked), .shipping-option:has(.form-check-input:checked) { border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
+        /* Style baru untuk shipping-options-container */
+        #shipping-options-container {
+            max-height: 220px; /* Perkiraan tinggi untuk 3 item, sesuaikan jika perlu */
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
-    <!--======================================================================-->
-    <!-- BAGIAN 3: BODY & HEADER                                            -->
-    <!--======================================================================-->
     <header>
-        <nav class="navbar navbar-expand-lg sticky-top">
-            <div class="container">
-                <a class="navbar-brand" href="index.php"><i class="fa-solid fa-store me-2"></i><?= htmlspecialchars($nama_toko) ?></a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav ms-auto">
-                        <li class="nav-item"><a class="nav-link <?= ($page == 'home') ? 'active' : '' ?>" href="index.php">Produk</a></li>
-                        <li class="nav-item">
-                            <a class="nav-link cart-icon" href="index.php?page=cart">
-                                <i class="fa-solid fa-cart-shopping"></i> Keranjang
-                                <?php $cart_count = count($_SESSION['cart']); if ($cart_count > 0): ?>
-                                    <span class="badge bg-danger cart-badge"><?= $cart_count ?></span>
-                                <?php endif; ?>
-                            </a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
+        <nav class="navbar navbar-expand-lg sticky-top"><div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="index.php">
+                <img src="uploads/<?= htmlspecialchars($app_logo) ?>" alt="Logo" height="30" class="me-2">
+                <?= htmlspecialchars($app_name) ?>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+            <div class="collapse navbar-collapse" id="navbarNav"><ul class="navbar-nav ms-auto"><li class="nav-item"><a class="nav-link" href="index.php">Produk</a></li><li class="nav-item"><a class="nav-link cart-icon" href="index.php?page=cart"><i class="fa-solid fa-cart-shopping"></i> Keranjang<?php $cart_count = count($_SESSION['cart'] ?? []); if ($cart_count > 0): ?><span class="badge bg-danger cart-badge"><?= $cart_count ?></span><?php endif; ?></a></li></ul></div></div>
         </nav>
     </header>
-
     <main class="container my-5">
-        <?php if (isset($_GET['status']) && $_GET['status'] === 'added'): ?>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">Produk berhasil ditambahkan ke keranjang!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-        <?php endif; ?>
-
-        <?php
-        //======================================================================
-        // BAGIAN 4: "ROUTER" UNTUK MENAMPILKAN KONTEN HALAMAN
-        //======================================================================
-        
-        if ($page === 'home'):
-        ?>
-            <!-- FORM PENCARIAN -->
-            <div class="row justify-content-center mb-5">
-                <div class="col-md-8 col-lg-6">
-                    <form action="index.php" method="get" class="d-flex">
-                        <input type="hidden" name="page" value="home">
-                        <input type="text" class="form-control form-control-lg" name="q" placeholder="Cari nama produk..." value="<?= htmlspecialchars($search_query) ?>">
-                        <button type="submit" class="btn btn-primary btn-lg"><i class="fa-solid fa-magnifying-glass"></i></button>
-                    </form>
-                </div>
-            </div>
-            <!-- DAFTAR PRODUK -->
+        <?php if ($page === 'home'): ?>
+            <div class="row justify-content-center mb-5"><div class="col-md-8 col-lg-6"><form action="index.php" method="get" class="d-flex"><input type="hidden" name="page" value="home"><input type="text" class="form-control form-control-lg" name="q" placeholder="Cari produk..." value="<?= htmlspecialchars($search_query) ?>"><button type="submit" class="btn btn-primary btn-lg"><i class="fa-solid fa-magnifying-glass"></i></button></form></div></div>
             <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
-                <?php if (empty($products)): ?>
-                    <div class="col-12"><div class="alert alert-warning text-center">Produk "<?= htmlspecialchars($search_query) ?>" tidak ditemukan.</div></div>
-                <?php else: foreach ($products as $id => $product): ?>
-                    <div class="col"><div class="card h-100 product-card"><img src="<?= htmlspecialchars($product['image']) ?>" class="card-img-top" alt="<?= htmlspecialchars($product['name']) ?>"><div class="card-body d-flex flex-column"><h5 class="card-title product-title" title="<?= htmlspecialchars($product['name']) ?>"><?= htmlspecialchars($product['name']) ?></h5><p class="card-text text-muted small"><?= htmlspecialchars($product['category']) ?></p><div class="rating-stars mb-2"><?php for ($i = 0; $i < 5; $i++): ?><i class="fa-solid fa-star<?= $i < $product['rating'] ? '' : '-regular' ?>"></i><?php endfor; ?></div><p class="product-price mt-auto"><?= format_rupiah($product['price']) ?></p><div class="d-grid gap-2 mt-2"><form action="index.php" method="post" class="d-grid"><input type="hidden" name="product_id" value="<?= $id ?>"><input type="hidden" name="action" value="buy_now"><button type="submit" class="btn btn-primary">Beli Sekarang</button></form><form action="index.php" method="post" class="d-grid"><input type="hidden" name="product_id" value="<?= $id ?>"><input type="hidden" name="action" value="add"><button type="submit" class="btn btn-outline-primary"><i class="fa-solid fa-cart-plus me-2"></i>Keranjang</button></form></div></div></div></div>
-                <?php endforeach; endif; ?>
+                <?php if ($products_result->num_rows === 0): ?>
+                    <div class="col-12"><div class="alert alert-warning text-center">Produk tidak ditemukan.</div></div>
+                <?php else: while($product = $products_result->fetch_assoc()): ?>
+                    <div class="col"><div class="card h-100 product-card"><img src="uploads/<?= htmlspecialchars($product['image']) ?>" alt="<?= htmlspecialchars($product['name']) ?>"><div class="card-body d-flex flex-column"><h5 class="card-title"><?= htmlspecialchars($product['name']) ?></h5><p class="mt-auto fw-bold fs-5 text-primary"><?= format_rupiah($product['price']) ?></p><div class="d-grid gap-2 mt-2"><form action="index.php" method="post" class="d-grid"><input type="hidden" name="product_id" value="<?= $product['id'] ?>"><input type="hidden" name="action" value="buy_now"><button type="submit" class="btn btn-primary">Beli Sekarang</button></form><form action="index.php" method="post" class="d-grid"><input type="hidden" name="product_id" value="<?= $product['id'] ?>"><input type="hidden" name="action" value="add"><button type="submit" class="btn btn-outline-primary"><i class="fa-solid fa-cart-plus me-2"></i>Keranjang</button></form></div></div></div></div>
+                <?php endwhile; endif; ?>
             </div>
-        <?php
-        elseif ($page === 'cart'):
-            // KODE HALAMAN KERANJANG (TIDAK BERUBAH)
-            include 'pages/cart.php';
-        ?>
-            <h2 class="mb-4">Keranjang Belanja Anda</h2>
+        <?php elseif ($page === 'cart'): ?>
+            <h2 class="mb-4">Keranjang Belanja</h2>
             <?php if (empty($_SESSION['cart'])): ?>
-                <div class="alert alert-info text-center"><i class="fa-solid fa-cart-arrow-down fa-3x mb-3"></i><h4 class="alert-heading">Keranjang Anda kosong!</h4><p>Silakan kembali ke halaman produk untuk mulai berbelanja.</p><a href="index.php" class="btn btn-primary">Lihat Produk</a></div>
+                <div class="alert alert-info text-center"><h4 class="alert-heading">Keranjang Anda kosong!</h4> <p>Silakan kembali berbelanja.</p></div>
             <?php else: ?>
-                <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="ps-3">Produk</th><th>Harga</th><th class="text-center">Kuantitas</th><th class="text-end">Subtotal</th><th class="text-center">Aksi</th></tr></thead><tbody>
-                <?php $total_harga = 0; foreach ($_SESSION['cart'] as $item): $product = $products_all[$item['id']]; $subtotal = $product['price'] * $item['quantity']; $total_harga += $subtotal; ?>
-                <tr><td class="ps-3"><div class="d-flex align-items-center"><img src="<?= htmlspecialchars($product['image']) ?>" style="width:80px;height:80px;object-fit:cover;border-radius:8px;" alt="<?= htmlspecialchars($product['name']) ?>"><div class="ms-3"><div class="fw-bold"><?= htmlspecialchars($product['name']) ?></div></div></div></td><td><?= format_rupiah($product['price']) ?></td><td><form action="index.php" method="post" class="d-flex justify-content-center"><input type="hidden" name="action" value="update_cart"><input type="hidden" name="product_id" value="<?= $item['id'] ?>"><input type="number" name="quantity" value="<?= $item['quantity'] ?>" class="form-control form-control-sm" style="width: 70px;" min="1" onchange="this.form.submit()"></form></td><td class="text-end fw-bold"><?= format_rupiah($subtotal) ?></td><td class="text-center"><a href="index.php?action=remove_from_cart&id=<?= $item['id'] ?>" class="btn btn-sm btn-outline-danger" title="Hapus item"><i class="fa-solid fa-trash-can"></i></a></td></tr>
+                <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th class="ps-3">Produk</th><th>Harga</th><th class="text-center">Kuantitas</th><th class="text-end">Subtotal</th><th class="text-center">Aksi</th></tr></thead><tbody>
+                <?php 
+                $total_harga = 0; 
+                foreach ($_SESSION['cart'] as $item): 
+                    $stmt_cart = $mysqli->prepare("SELECT * FROM products WHERE id = ?");
+                    $stmt_cart->bind_param("i", $item['id']); $stmt_cart->execute();
+                    $product = $stmt_cart->get_result()->fetch_assoc(); $stmt_cart->close();
+                    if(!$product) continue;
+                    $subtotal = $product['price'] * $item['quantity']; $total_harga += $subtotal;
+                ?>
+                <tr>
+                    <td class="ps-3"><div class="d-flex align-items-center"><img src="uploads/<?= htmlspecialchars($product['image']) ?>" style="width:80px;height:80px;object-fit:cover;border-radius:8px;" alt="<?= htmlspecialchars($product['name']) ?>"><div class="ms-3 fw-bold"><?= htmlspecialchars($product['name']) ?></div></div></td>
+                    <td><?= format_rupiah($product['price']) ?></td>
+                    <td><form action="index.php" method="post" class="d-flex justify-content-center"><input type="hidden" name="action" value="update_cart"><input type="hidden" name="product_id" value="<?= $item['id'] ?>"><input type="number" name="quantity" value="<?= $item['quantity'] ?>" class="form-control form-control-sm" style="width:70px;" onchange="this.form.submit()"></form></td>
+                    <td class="text-end fw-bold"><?= format_rupiah($subtotal) ?></td>
+                    <td class="text-center"><a href="index.php?action=remove_from_cart&id=<?= $item['id'] ?>" class="btn btn-sm btn-outline-danger" title="Hapus"><i class="fa-solid fa-trash-can"></i></a></td>
+                </tr>
                 <?php endforeach; ?>
                 </tbody><tfoot><tr class="table-light"><td colspan="3" class="text-end fw-bold ps-3">Total Belanja</td><td class="text-end fw-bold fs-5 text-primary"><?= format_rupiah($total_harga) ?></td><td></td></tr></tfoot></table></div></div>
                 <div class="text-end mt-4"><a href="index.php?page=checkout" class="btn btn-primary btn-lg">Lanjutkan ke Checkout <i class="fa-solid fa-arrow-right ms-2"></i></a></div>
             <?php endif; ?>
-        <?php
-        elseif ($page === 'checkout'):
+        <?php elseif ($page === 'checkout'):
             if (empty($_SESSION['cart'])) { echo "<script>window.location.href = 'index.php?page=cart';</script>"; exit(); }
+            $subtotal_produk_checkout = 0;
+            foreach ($_SESSION['cart'] as $item) { 
+                $stmt_checkout_sub = $mysqli->prepare("SELECT price FROM products WHERE id = ?");
+                $stmt_checkout_sub->bind_param("i", $item['id']); $stmt_checkout_sub->execute();
+                $product_price = $stmt_checkout_sub->get_result()->fetch_assoc()['price'] ?? 0;
+                $subtotal_produk_checkout += $product_price * $item['quantity']; 
+                $stmt_checkout_sub->close();
+            }
         ?>
             <div class="row g-5">
                 <div class="col-md-5 col-lg-4 order-md-last">
-                    <h4 class="d-flex justify-content-between align-items-center mb-3"><span class="text-primary">Ringkasan Pesanan</span><span class="badge bg-primary rounded-pill"><?= count($_SESSION['cart']) ?></span></h4>
+                    <h4 class="mb-3"><span class="text-primary">Ringkasan</span></h4>
                     <ul class="list-group mb-3">
-                        <?php $total_harga_checkout = 0; foreach ($_SESSION['cart'] as $item): $product = $products_all[$item['id']]; $subtotal_checkout = $product['price'] * $item['quantity']; $total_harga_checkout += $subtotal_checkout; ?>
-                        <li class="list-group-item d-flex justify-content-between lh-sm"><div><h6 class="my-0"><?= htmlspecialchars($product['name']) ?></h6><small class="text-muted">Jumlah: <?= $item['quantity'] ?></small></div><span class="text-muted"><?= format_rupiah($subtotal_checkout) ?></span></li>
-                        <?php endforeach; ?>
-                        <li class="list-group-item d-flex justify-content-between bg-light"><span class="fw-bold">Total</span><strong class="text-primary"><?= format_rupiah($total_harga_checkout) ?></strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Subtotal Produk</span><strong><?= format_rupiah($subtotal_produk_checkout) ?></strong></li>
+                        <li id="shipping-cost-summary" class="list-group-item d-flex justify-content-between d-none"><span>Ongkos Kirim</span><strong id="shipping-cost-text">-</strong></li>
+                        <li class="list-group-item d-flex justify-content-between bg-light fs-5"><span class="fw-bold">Grand Total</span><strong id="grand-total-text" data-subtotal="<?= $subtotal_produk_checkout ?>"><?= format_rupiah($subtotal_produk_checkout) ?></strong></li>
                     </ul>
                 </div>
                 <div class="col-md-7 col-lg-8">
-                    <h4 class="mb-3">Detail Pengiriman & Pembayaran</h4>
-                    <?php if (isset($_GET['error'])): ?>
-                        <div class="alert alert-danger">
-                            <?php if ($_GET['error'] === 'tripay'): ?>
-                                <strong>Transaksi Gagal!</strong> <?= htmlspecialchars(urldecode($_GET['msg'] ?? 'Silakan coba lagi.')) ?>
-                            <?php else: ?>
-                                Semua field wajib diisi dengan benar. Mohon periksa kembali data Anda.
-                            <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
+                    <h4 class="mb-3">Detail Pesanan</h4>
+                    <?php if (isset($_GET['error'])): ?><div class="alert alert-danger"><strong>Error!</strong> <?php if ($_GET['error'] === 'tripay') { echo htmlspecialchars(urldecode($_GET['msg'])); } else { echo 'Harap lengkapi semua data, termasuk memilih opsi pengiriman.'; } ?></div><?php endif; ?>
                     <form action="index.php" method="post">
-                        <input type="hidden" name="action" value="process_checkout">
-                        <input type="hidden" name="provinsi_text" id="provinsi_text"><input type="hidden" name="kota_text" id="kota_text"><input type="hidden" name="kecamatan_text" id="kecamatan_text"><input type="hidden" name="kelurahan_text" id="kelurahan_text">
-                        
+                        <input type="hidden" name="action" value="process_checkout"><input type="hidden" name="provinsi_text" id="provinsi_text"><input type="hidden" name="kota_text" id="kota_text"><input type="hidden" name="kecamatan_text" id="kecamatan_text"><input type="hidden" name="kelurahan_text" id="kelurahan_text"><input type="hidden" name="kodepos" id="kodepos-input"><input type="hidden" name="shipping_cost" id="shipping_cost_input" value="0"><input type="hidden" name="shipping_details" id="shipping_details_input">
                         <div class="row g-3">
                             <div class="col-sm-6"><label for="nama" class="form-label">Nama Lengkap</label><input type="text" class="form-control" id="nama" name="nama" required></div>
-                            <div class="col-sm-6"><label for="whatsapp" class="form-label">Nomor WhatsApp</label><div class="input-group"><span class="input-group-text">+62</span><input type="tel" class="form-control" id="whatsapp" name="whatsapp" placeholder="81234567890" required></div></div>
-                            <div class="col-12"><label for="email" class="form-label">Email</label><input type="email" class="form-control" id="email" name="email" placeholder="you@example.com" required></div>
+                            <div class="col-sm-6"><label for="whatsapp" class="form-label">Nomor WhatsApp</label><div class="input-group"><span class="input-group-text">+62</span><input type="tel" class="form-control" id="whatsapp" name="whatsapp" required></div></div>
+                            <div class="col-12"><label for="email" class="form-label">Email</label><input type="email" class="form-control" id="email" name="email" required></div>
                             <div class="col-sm-6"><label for="provinsi" class="form-label">Provinsi</label><select class="form-select" id="provinsi" required><option value="">Memuat...</option></select></div>
-                            <div class="col-sm-6"><label for="kota" class="form-label">Kota/Kabupaten</label><select class="form-select" id="kota" required disabled><option value="">Pilih provinsi</option></select></div>
-                            <div class="col-sm-6"><label for="kecamatan" class="form-label">Kecamatan</label><select class="form-select" id="kecamatan" required disabled><option value="">Pilih kota/kab</option></select></div>
-                            <div class="col-sm-6"><label for="kelurahan" class="form-label">Kelurahan/Desa</label><select class="form-select" id="kelurahan" required disabled><option value="">Pilih kecamatan</option></select></div>
+                            <div class="col-sm-6"><label for="kota" class="form-label">Kota/Kabupaten</label><select class="form-select" id="kota" required disabled></select></div>
+                            <div class="col-sm-6"><label for="kecamatan" class="form-label">Kecamatan</label><select class="form-select" id="kecamatan" required disabled></select></div>
+                            <div class="col-sm-6"><label for="kelurahan" class="form-label">Kelurahan/Desa</label><select class="form-select" id="kelurahan" required disabled></select></div>
                             <div class="col-12"><label for="alamat" class="form-label">Alamat Lengkap</label><textarea class="form-control" id="alamat" name="alamat" rows="2" placeholder="Nama jalan, nomor rumah, RT/RW" required></textarea></div>
+                            <div id="kodepos-container" class="col-12 mt-2 d-none"><span class="fw-medium">Kode Pos:</span> <span id="kodepos-result" class="badge fs-6"></span></div>
                         </div>
-
+                        <hr class="my-4">
+                        <div id="shipping-section" class="d-none">
+                            <h4 class="mb-3">Opsi Pengiriman</h4>
+                            <div class="text-center" id="shipping-loader"><div class="spinner-border text-primary"></div><p>Mencari ongkir...</p></div>
+                            <div id="shipping-options-container" class="vstack gap-2"></div>
+                            <div id="shipping-error" class="alert alert-warning d-none"></div>
+                        </div>
                         <hr class="my-4">
                         <h4 class="mb-3">Metode Pembayaran</h4>
-                        <div class="my-3">
-                            <div class="form-check payment-option mb-2">
-                                <input id="cod" name="payment_method" type="radio" class="form-check-input" value="COD" required>
-                                <label class="form-check-label w-100" for="cod">
-                                    <i class="fa-solid fa-hand-holding-dollar me-2"></i>Bayar di Tempat (COD)
-                                    <div class="small text-muted">Pesanan akan dikonfirmasi via WhatsApp.</div>
-                                </label>
-                            </div>
-                            <div class="form-check payment-option">
-                                <input id="tripay" name="payment_method" type="radio" class="form-check-input" value="TRIPAY" required>
-                                <label class="form-check-label w-100" for="tripay">
-                                    <i class="fa-solid fa-credit-card me-2"></i>Transfer Bank / E-Wallet
-                                    <div class="small text-muted">Pembayaran online aman via Tripay.</div>
-                                </label>
-                            </div>
+                        <div class="vstack gap-2">
+                            <div class="payment-option"><input id="cod" name="payment_method" type="radio" class="form-check-input" value="COD" required><label class="form-check-label w-100 ms-2" for="cod"><i class="fa-solid fa-hand-holding-dollar me-2"></i>Bayar di Tempat (COD)</label></div>
+                            <div class="payment-option"><input id="tripay" name="payment_method" type="radio" class="form-check-input" value="TRIPAY" required><label class="form-check-label w-100 ms-2" for="tripay"><i class="fa-solid fa-credit-card me-2"></i>Transfer Bank / E-Wallet</label></div>
                         </div>
                         <hr class="my-4">
-                        <button class="w-100 btn btn-primary btn-lg" type="submit" id="checkout-button">Pilih Metode Pembayaran</button>
+                        <button class="w-100 btn btn-primary btn-lg" type="submit">Proses Pesanan</button>
                     </form>
                 </div>
             </div>
         <?php endif; ?>
     </main>
 
-    <footer class="footer text-center">
-        <div class="container"><p class="mb-0">&copy; <?= date('Y') ?> <?= htmlspecialchars($nama_toko) ?>.</p></div>
-    </footer>
-
+    <footer class="footer text-center"><p class="mb-0">&copy; <?= date('Y') ?> <?= htmlspecialchars($app_name) ?>.</p></footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Skrip untuk alamat dinamis
     if (document.getElementById('provinsi')) {
-        const API_BASE_URL = 'https://www.emsifa.com/api-wilayah-indonesia/api';
-        const selectProvinsi = document.getElementById('provinsi');
-        const selectKota = document.getElementById('kota');
-        const selectKecamatan = document.getElementById('kecamatan');
-        const selectKelurahan = document.getElementById('kelurahan');
-        const hiddenProvinsi = document.getElementById('provinsi_text');
-        const hiddenKota = document.getElementById('kota_text');
-        const hiddenKecamatan = document.getElementById('kecamatan_text');
-        const hiddenKelurahan = document.getElementById('kelurahan_text');
+        const API_WILAYAH_URL = 'https://www.emsifa.com/api-wilayah-indonesia/api';
+        const selectProvinsi = document.getElementById('provinsi'); const selectKota = document.getElementById('kota'); const selectKecamatan = document.getElementById('kecamatan'); const selectKelurahan = document.getElementById('kelurahan');
 
-        function fetchAndPopulate(url, selectElement, defaultOptionText) {
-            selectElement.disabled = true;
-            selectElement.innerHTML = `<option value="">Memuat...</option>`;
-            fetch(url).then(response => response.json()).then(data => {
-                selectElement.innerHTML = `<option value="">-- ${defaultOptionText} --</option>`;
-                data.forEach(item => {
-                    const option = document.createElement('option');
-                    option.value = item.id;
-                    option.textContent = item.name;
-                    selectElement.appendChild(option);
-                });
+        function fetchWilayah(url, selectElement) {
+            selectElement.disabled = true; selectElement.innerHTML = '<option value="">Memuat...</option>';
+            fetch(url).then(r => r.json()).then(data => {
+                selectElement.innerHTML = '<option value="">-- Pilih --</option>';
+                data.forEach(item => selectElement.add(new Option(item.name, item.id)));
                 selectElement.disabled = false;
-            }).catch(error => { selectElement.innerHTML = `<option value="">Gagal</option>`; });
+            }).catch(() => { selectElement.innerHTML = '<option value="">Gagal</option>'; });
         }
         
-        document.addEventListener('DOMContentLoaded', () => fetchAndPopulate(`${API_BASE_URL}/provinces.json`, selectProvinsi, 'Pilih Provinsi'));
-        selectProvinsi.addEventListener('change', () => {
-            hiddenProvinsi.value = selectProvinsi.options[selectProvinsi.selectedIndex].text;
-            selectKota.disabled = selectKecamatan.disabled = selectKelurahan.disabled = true;
-            if (selectProvinsi.value) fetchAndPopulate(`${API_BASE_URL}/regencies/${selectProvinsi.value}.json`, selectKota, 'Pilih Kota/Kab');
-        });
-        selectKota.addEventListener('change', () => {
-            hiddenKota.value = selectKota.options[selectKota.selectedIndex].text;
-            selectKecamatan.disabled = selectKelurahan.disabled = true;
-            if (selectKota.value) fetchAndPopulate(`${API_BASE_URL}/districts/${selectKota.value}.json`, selectKecamatan, 'Pilih Kecamatan');
-        });
-        selectKecamatan.addEventListener('change', () => {
-            hiddenKecamatan.value = selectKecamatan.options[selectKecamatan.selectedIndex].text;
-            selectKelurahan.disabled = true;
-            if (selectKecamatan.value) fetchAndPopulate(`${API_BASE_URL}/villages/${selectKecamatan.value}.json`, selectKelurahan, 'Pilih Kelurahan/Desa');
-        });
-        selectKelurahan.addEventListener('change', () => { hiddenKelurahan.value = selectKelurahan.options[selectKelurahan.selectedIndex].text; });
+        document.addEventListener('DOMContentLoaded', () => fetchWilayah(`${API_WILAYAH_URL}/provinces.json`, selectProvinsi));
+        selectProvinsi.addEventListener('change', () => { document.getElementById('provinsi_text').value = selectProvinsi.options[selectProvinsi.selectedIndex].text; fetchWilayah(`${API_WILAYAH_URL}/regencies/${selectProvinsi.value}.json`, selectKota); });
+        selectKota.addEventListener('change', () => { document.getElementById('kota_text').value = selectKota.options[selectKota.selectedIndex].text; fetchWilayah(`${API_WILAYAH_URL}/districts/${selectKota.value}.json`, selectKecamatan); });
+        selectKecamatan.addEventListener('change', () => { document.getElementById('kecamatan_text').value = selectKecamatan.options[selectKecamatan.selectedIndex].text; fetchWilayah(`${API_WILAYAH_URL}/villages/${selectKecamatan.value}.json`, selectKelurahan); });
         
-        // Skrip untuk mengubah teks tombol checkout
-        const paymentRadios = document.querySelectorAll('input[name="payment_method"]');
-        const checkoutButton = document.getElementById('checkout-button');
-        paymentRadios.forEach(radio => {
-            radio.addEventListener('change', function() {
-                if (this.value === 'COD') {
-                    checkoutButton.innerHTML = '<i class="fa-brands fa-whatsapp me-2"></i> Pesan via WhatsApp (COD)';
-                } else if (this.value === 'TRIPAY') {
-                    checkoutButton.innerHTML = '<i class="fa-solid fa-shield-halved me-2"></i> Lanjutkan ke Pembayaran Online';
+        selectKelurahan.addEventListener('change', function() {
+            document.getElementById('kelurahan_text').value = this.options[this.selectedIndex].text;
+            const kecamatanText = document.getElementById('kecamatan_text').value;
+            const kelurahanText = this.options[this.selectedIndex].text;
+            if (!kecamatanText || !kelurahanText) return;
+            fetchPostalCode(kecamatanText, kelurahanText);
+        });
+
+        function fetchPostalCode(kecamatan, kelurahan) {
+            const kodeposContainer = document.getElementById('kodepos-container'); const kodeposResult = document.getElementById('kodepos-result');
+            kodeposContainer.classList.remove('d-none'); kodeposResult.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
+            const formData = new FormData(); formData.append('action', 'get_kodepos'); formData.append('kecamatan', kecamatan); formData.append('kelurahan', kelurahan);
+            fetch('index.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    kodeposResult.textContent = data.postal_code; kodeposResult.className = 'badge fs-6 bg-success';
+                    document.getElementById('kodepos-input').value = data.postal_code;
+                    fetchShippingOptions(data.postal_code);
+                } else {
+                    kodeposResult.textContent = 'Tidak ditemukan'; kodeposResult.className = 'badge fs-6 bg-danger';
                 }
             });
-        });
+        }
+
+        function fetchShippingOptions(postalCode) {
+            const shippingSection = document.getElementById('shipping-section'); const loader = document.getElementById('shipping-loader');
+            const container = document.getElementById('shipping-options-container'); const errorContainer = document.getElementById('shipping-error');
+            shippingSection.classList.remove('d-none'); loader.classList.remove('d-none'); container.innerHTML = ''; errorContainer.classList.add('d-none');
+            const formData = new FormData(); formData.append('action', 'calculate_ongkir'); formData.append('destination', postalCode);
+            fetch('index.php', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
+                loader.classList.add('d-none');
+                if (data.meta.status === 'success' && data.data.length > 0) {
+                    
+                    // --- PERUBAHAN DIMULAI DI SINI ---
+                    // 1. Urutkan data berdasarkan harga (cost) termurah
+                    const sortedOptions = data.data.sort((a, b) => a.cost - b.cost);
+                    
+                    sortedOptions.forEach(option => {
+                        const costValue = option.cost; const etd = option.etd; const id = `${option.code}-${option.service.replace(/\s+/g, '-')}`;
+                        const details = `${option.name} - ${option.service}`;
+                        container.innerHTML += `<div class="shipping-option"><input type="radio" class="form-check-input" name="shipping_option" id="${id}" value="${costValue}" data-details="${details}" required><label class="form-check-label w-100 ms-2" for="${id}">${details} (${etd}) - <strong>${new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(costValue)}</strong></label></div>`;
+                    });
+                    // --- PERUBAHAN SELESAI DI SINI ---
+                    
+                    addShippingEventListeners();
+                } else {
+                    errorContainer.innerText = data.message || 'Tidak ada opsi pengiriman ke tujuan ini.';
+                    errorContainer.classList.remove('d-none');
+                }
+            });
+        }
+
+        function addShippingEventListeners() {
+            document.querySelectorAll('input[name="shipping_option"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const subtotal = parseFloat(document.getElementById('grand-total-text').dataset.subtotal);
+                    const shippingCost = parseFloat(this.value);
+                    const grandTotal = subtotal + shippingCost;
+                    const shippingDetails = this.dataset.details;
+                    document.getElementById('shipping-cost-summary').classList.remove('d-none');
+                    document.getElementById('shipping-cost-text').innerText = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(shippingCost);
+                    document.getElementById('grand-total-text').innerText = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(grandTotal);
+                    document.getElementById('shipping_cost_input').value = shippingCost;
+                    document.getElementById('shipping_details_input').value = shippingDetails;
+                });
+            });
+        }
     }
     </script>
 </body>
