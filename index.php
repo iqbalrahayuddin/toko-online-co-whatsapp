@@ -95,8 +95,8 @@ $rajaongkirApiUrl_KodePos = 'https://rajaongkir.komerce.id/api/v1/destination/do
 $tripayApiKey = get_setting($mysqli, 'tripay_api_key');
 $tripayPrivateKey = get_setting($mysqli, 'tripay_private_key');
 $tripayMerchantCode = get_setting($mysqli, 'tripay_merchant_code');
-$tripayApiUrl = 'https://tripay.co.id/api-sandbox/transaction/create';
-$tripayApiUrl_Channels = 'https://tripay.co.id/api-sandbox/merchant/payment-channel';
+$tripayApiUrl = 'https://tripay.co.id/api/transaction/create';
+$tripayApiUrl_Channels = 'https://tripay.co.id/api/merchant/payment-channel';
 
 
 // --- Menentukan URL Absolut untuk Meta Tags ---
