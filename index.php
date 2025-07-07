@@ -1,6 +1,51 @@
 <?php
 require_once 'config.php';
 
+// --- *** FUNGSI HELPER BARU *** ---
+define('FONNTE_TOKEN', 'aXr6Ean3oiCBDUGYGx2y');
+
+/**
+ * Memformat nomor telepon ke standar internasional (62xxx).
+ * @param string $number Nomor telepon awal.
+ * @return string Nomor telepon yang sudah diformat.
+ */
+function format_whatsapp_number($number) {
+    // 1. Hapus semua karakter kecuali angka
+    $number = preg_replace('/[^0-9]/', '', $number);
+    // 2. Jika nomor diawali dengan 0, ganti dengan 62
+    if (substr($number, 0, 1) == '0') {
+        $number = '62' . substr($number, 1);
+    }
+    // 3. Jika nomor sudah diawali dengan 62, biarkan
+    // (Kasus +62 sudah ditangani oleh preg_replace di awal)
+    return $number;
+}
+
+/**
+ * Mengirim notifikasi WhatsApp menggunakan Fonnte.
+ * @param string $target Nomor tujuan yang sudah diformat.
+ * @param string $message Isi pesan.
+ */
+function send_fonnte_notification($target, $message) {
+    $curl = curl_init();
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => 'https://api.fonnte.com/send',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 10, // Timeout 10 detik agar tidak memperlambat proses
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'POST',
+        CURLOPT_POSTFIELDS => array('target' => $target, 'message' => $message),
+        CURLOPT_HTTPHEADER => array('Authorization: ' . FONNTE_TOKEN),
+    ));
+    $response = curl_exec($curl);
+    curl_close($curl);
+    // Response dari Fonnte bisa di-log jika perlu, tapi kita tidak menampilkannya ke user.
+}
+
+
 // --- *** BAGIAN CALLBACK HANDLER *** ---
 // URL untuk ini: /index.php?action=tripay_callback
 $actionForCallback = $_GET['action'] ?? '';
@@ -12,30 +57,24 @@ if ($actionForCallback === 'tripay_callback') {
     // Pastikan signature valid
     $signature = hash_hmac('sha256', $json, $privateKey);
     if ($callbackSignature !== $signature) {
-        // Hentikan jika signature tidak valid
         exit(json_encode(['success' => false, 'message' => 'Invalid Signature']));
     }
 
     $data = json_decode($json, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
-        // Hentikan jika JSON tidak valid
         exit(json_encode(['success' => false, 'message' => 'Invalid JSON']));
     }
 
     if (isset($data['status']) && $data['status'] == 'PAID') {
         $merchantRef = $data['merchant_ref'];
-        // Buat file status untuk menandakan pembayaran berhasil
-        // PASTIKAN FOLDER 'paid_invoices' ADA DAN WRITABLE
         if (!is_dir('paid_invoices')) {
             mkdir('paid_invoices', 0775, true);
         }
         file_put_contents('paid_invoices/' . $merchantRef . '.json', $json);
     }
     
-    // Respon ke Tripay
     exit(json_encode(['success' => true]));
 }
-// --- *** AKHIR BAGIAN CALLBACK HANDLER *** ---
 
 
 // --- Mengambil semua pengaturan dari DB ---
@@ -147,16 +186,24 @@ if ($action === 'check_payment_status') {
         if (file_exists($filepath)) {
             // Pembayaran Berhasil
             $orderData = $_SESSION['pending_payment'];
-            $pesan = "Halo *{$app_name}*, pembayaran untuk pesanan *{$orderData['merchant_ref']}* telah berhasil diverifikasi (LUNAS).\n\n--- DETAIL PESANAN ---\n";
-            foreach ($orderData['order_items_details'] as $order_item) { $pesan .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
-            $pesan .= "\nSubtotal Produk: " . format_rupiah($orderData['subtotal_produk']) . "\nPengiriman: {$orderData['shipping_details']} (" . format_rupiah($orderData['shipping_cost']) . ")\n";
-            $pesan .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($orderData['grand_total']) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$orderData['nama']}\n{$orderData['whatsapp']}\n\n{$orderData['alamat']}\nKel. {$orderData['kelurahan']}, Kec. {$orderData['kecamatan']}\n{$orderData['kota']}, {$orderData['provinsi']} {$orderData['kodepos']}\n\nMohon segera diproses. Terima kasih.";
+            
+            // --- KIRIM NOTIFIKASI FONNTE KE PELANGGAN ---
+            $customer_number = format_whatsapp_number($orderData['whatsapp']);
+            $customer_message = "Terima kasih, {$orderData['nama']}.\n\nPembayaran untuk pesanan Anda *#{$orderData['merchant_ref']}* sebesar *" . format_rupiah($orderData['grand_total']) . "* telah kami terima.\n\nPesanan Anda akan segera kami proses.";
+            send_fonnte_notification($customer_number, $customer_message);
+            // --- AKHIR BLOK NOTIFIKASI ---
+            
+            // Buat pesan untuk Admin
+            $admin_message = "Halo *{$app_name}*, pembayaran untuk pesanan *{$orderData['merchant_ref']}* telah berhasil diverifikasi (LUNAS).\n\n--- DETAIL PESANAN ---\n";
+            foreach ($orderData['order_items_details'] as $order_item) { $admin_message .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
+            $admin_message .= "\nSubtotal Produk: " . format_rupiah($orderData['subtotal_produk']) . "\nPengiriman: {$orderData['shipping_details']} (" . format_rupiah($orderData['shipping_cost']) . ")\n";
+            $admin_message .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($orderData['grand_total']) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$orderData['nama']}\n{$orderData['whatsapp']}\n\n{$orderData['alamat']}\nKel. {$orderData['kelurahan']}, Kec. {$orderData['kecamatan']}\n{$orderData['kota']}, {$orderData['provinsi']} {$orderData['kodepos']}\n\nMohon segera diproses. Terima kasih.";
 
             // Bersihkan sesi dan file status
             unset($_SESSION['pending_payment']);
             @unlink($filepath);
 
-            echo json_encode(['status' => 'PAID', 'whatsapp_url' => "https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text=" . urlencode($pesan)]);
+            echo json_encode(['status' => 'PAID', 'whatsapp_url' => "https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text=" . urlencode($admin_message)]);
         } else {
             echo json_encode(['status' => 'UNPAID']);
         }
@@ -174,7 +221,7 @@ if ($action === 'remove_from_cart') { $product_id = (int)$_GET['id']; if (isset(
 
 // --- *** PROSES CHECKOUT UTAMA (DIUBAH UNTUK AJAX) *** ---
 if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
-    header('Content-Type: application/json'); // Selalu kembalikan JSON
+    header('Content-Type: application/json');
 
     $nama = htmlspecialchars(trim($_POST['nama'])); $email = htmlspecialchars(trim($_POST['email'])); $whatsapp = htmlspecialchars(trim($_POST['whatsapp'])); $alamat = htmlspecialchars(trim($_POST['alamat']));
     $provinsi = htmlspecialchars(trim($_POST['provinsi_text'])); $kota = htmlspecialchars(trim($_POST['kota_text'])); $kecamatan = htmlspecialchars(trim($_POST['kecamatan_text'])); $kelurahan = htmlspecialchars(trim($_POST['kelurahan_text']));
@@ -233,7 +280,6 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
 
         if (isset($response_data['success']) && $response_data['success'] == true) {
             $_SESSION['cart'] = [];
-            // Simpan detail pesanan untuk membuat pesan WA setelah pembayaran
             $_SESSION['pending_payment'] = [
                 'merchant_ref' => $merchantRef, 'nama' => $nama, 'whatsapp' => $whatsapp, 'alamat' => $alamat,
                 'provinsi' => $provinsi, 'kota' => $kota, 'kecamatan' => $kecamatan, 'kelurahan' => $kelurahan, 'kodepos' => $kodepos,
@@ -256,8 +302,7 @@ $page = $_GET['page'] ?? 'home';
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($app_name) ?></title>
-    <meta name="description" content="<?= htmlspecialchars($app_description) ?>">
-    <meta property="og:title" content="<?= htmlspecialchars($app_name) ?>"><meta property="og:description" content="<?= htmlspecialchars($app_description) ?>"><meta property="og:image" content="<?= $meta_image_url ?>"><meta property="og:url" content="<?= $current_url ?>"><meta property="og:type" content="website"><meta property="og:site_name" content="<?= htmlspecialchars($app_name) ?>"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="<?= htmlspecialchars($app_name) ?>"><meta name="twitter:description" content="<?= htmlspecialchars($app_description) ?>"><meta name="twitter:image" content="<?= $meta_image_url ?>">
+    <meta name="description" content="<?= htmlspecialchars($app_description) ?>"><meta property="og:title" content="<?= htmlspecialchars($app_name) ?>"><meta property="og:description" content="<?= htmlspecialchars($app_description) ?>"><meta property="og:image" content="<?= $meta_image_url ?>"><meta property="og:url" content="<?= $current_url ?>"><meta property="og:type" content="website"><meta property="og:site_name" content="<?= htmlspecialchars($app_name) ?>"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="<?= htmlspecialchars($app_name) ?>"><meta name="twitter:description" content="<?= htmlspecialchars($app_description) ?>"><meta name="twitter:image" content="<?= $meta_image_url ?>">
     <link rel="icon" href="uploads/<?= htmlspecialchars($app_icon) ?>" type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -297,7 +342,7 @@ $page = $_GET['page'] ?? 'home';
     </main>
     
     <div class="modal fade" id="tripayChannelModal" tabindex="-1" aria-labelledby="tripayChannelModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h1 class="modal-title fs-5" id="tripayChannelModalLabel">Pilih Channel Pembayaran</h1><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div id="tripay-channels-loader" class="text-center my-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Memuat channel...</p></div><div id="tripay-channels-error" class="alert alert-danger d-none"></div><div id="tripay-channels-container" class="vstack gap-2"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button><button type="button" class="btn btn-primary" id="confirm-tripay-channel" disabled>Lanjutkan</button></div></div></div></div>
-    <div class="modal fade" id="paymentDetailModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="paymentDetailModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h1 class="modal-title fs-5" id="paymentDetailModalLabel">Detail Pembayaran</h1></div><div class="modal-body" id="payment-modal-body"><div id="payment-waiting-view" class="text-center my-4"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div><h5 class="mt-3">Menunggu Pembayaran...</h5><p class="text-muted small">Jangan tutup halaman ini. Anda akan diarahkan secara otomatis setelah pembayaran terverifikasi.</p></div><div id="payment-details-view" class="d-none"><p class="text-center">Selesaikan pembayaran Anda sebelum waktu kedaluwarsa.</p><div class="text-center mb-3"><h5 class="mb-1">Total Tagihan</h5><h3 class="fw-bold text-primary" id="payment-amount"></h3></div><div id="qris-display" class="text-center d-none"><img id="qris-image" src="" alt="QR Code" class="img-fluid rounded" style="max-width: 250px;"><p class="mt-2 small text-muted">Scan QR Code menggunakan aplikasi E-Wallet Anda.</p></div><div id="va-display" class="d-none"><p class="mb-2" id="va-payment-name"></p><div class="input-group mb-3 va-number-container p-2 rounded"><span class="input-group-text bg-transparent border-0 fw-bold fs-5" id="va-number"></span><button class="btn btn-outline-primary ms-auto" type="button" id="copy-va-btn" data-bs-toggle="tooltip" data-bs-placement="top" title="Salin Kode"><i class="fa-regular fa-copy"></i></button></div></div><hr><div id="payment-instructions"></div></div><div id="payment-success-view" class="text-center my-4 d-none"><i class="fa-solid fa-circle-check fa-4x text-success"></i><h5 class="mt-3">Pembayaran Berhasil!</h5><p class="text-muted small">Anda akan diarahkan dalam beberapa saat...</p></div></div></div></div></div>
+    <div class="modal fade" id="paymentDetailModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="paymentDetailModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h1 class="modal-title fs-5" id="paymentDetailModalLabel">Detail Pembayaran</h1></div><div class="modal-body" id="payment-modal-body"><div id="payment-waiting-view" class="text-center my-4"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div><h5 class="mt-3">Menunggu Pembayaran...</h5><p class="text-muted small">Jangan tutup halaman ini. Anda akan diarahkan secara otomatis setelah pembayaran terverifikasi.</p></div><div id="payment-details-view" class="d-none"><p class="text-center">Selesaikan pembayaran Anda sebelum waktu kedaluwarsa.</p><div class="text-center mb-3"><h5 class="mb-1">Total Tagihan</h5><h3 class="fw-bold text-primary" id="payment-amount"></h3></div><div id="qris-display" class="text-center d-none"><img id="qris-image" src="" alt="QR Code" class="img-fluid rounded" style="max-width: 250px;"><p class="mt-2 small text-muted">Scan QR Code menggunakan aplikasi E-Wallet Anda.</p></div><div id="va-display" class="d-none"><p class="mb-2" id="va-payment-name"></p><div class="input-group mb-3 va-number-container p-2 rounded"><span class="input-group-text bg-transparent border-0 fw-bold fs-5" id="va-number"></span><button class="btn btn-outline-primary ms-auto" type="button" id="copy-va-btn" data-bs-toggle="tooltip" data-bs-placement="top" title="Salin Kode"><i class="fa-regular fa-copy"></i></button></div></div><hr><div id="payment-instructions"></div></div><div id="payment-success-view" class="text-center my-4 d-none"><i class="fa-solid fa-circle-check fa-4x text-success"></i><h5 class="mt-3">Pembayaran Berhasil!</h5><p class="text-muted small">Notifikasi telah dikirim ke WhatsApp Anda. Halaman ini akan dialihkan sebentar lagi...</p></div></div></div></div></div>
 
     <footer class="footer text-center"><p class="mb-0">&copy; <?= date('Y') ?> <?= htmlspecialchars($app_name) ?>.</p></footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -418,10 +463,11 @@ $page = $_GET['page'] ?? 'home';
                     if (data.status === 'PAID') {
                         clearInterval(paymentCheckInterval);
                         document.getElementById('payment-details-view').classList.add('d-none');
+                        document.getElementById('payment-waiting-view').classList.add('d-none');
                         document.getElementById('payment-success-view').classList.remove('d-none');
                         setTimeout(() => {
                             window.location.href = data.whatsapp_url;
-                        }, 2000);
+                        }, 2500);
                     }
                 });
             }, 3000);
