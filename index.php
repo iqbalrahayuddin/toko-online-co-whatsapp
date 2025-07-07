@@ -6,19 +6,27 @@ define('FONNTE_TOKEN', 'aXr6Ean3oiCBDUGYGx2y');
 
 /**
  * Memformat nomor telepon ke standar internasional (62xxx).
+ * Disesuaikan untuk input yang diawali dengan '8'.
  * @param string $number Nomor telepon awal.
  * @return string Nomor telepon yang sudah diformat.
  */
 function format_whatsapp_number($number) {
-    // 1. Hapus semua karakter kecuali angka
+    // 1. Hapus semua karakter non-numerik
     $number = preg_replace('/[^0-9]/', '', $number);
-    // 2. Jika nomor diawali dengan 0, ganti dengan 62
-    if (substr($number, 0, 1) == '0') {
-        $number = '62' . substr($number, 1);
+    // 2. Jika nomor diawali dengan '8' (format input baru yang diharapkan)
+    if (substr($number, 0, 1) == '8') {
+        return '62' . $number;
     }
-    // 3. Jika nomor sudah diawali dengan 62, biarkan
-    // (Kasus +62 sudah ditangani oleh preg_replace di awal)
-    return $number;
+    // 3. Fallback jika pengguna masih memasukkan '0' di depan
+    if (substr($number, 0, 1) == '0') {
+        return '62' . substr($number, 1);
+    }
+    // 4. Jika pengguna sudah memasukkan '62'
+    if (substr($number, 0, 2) == '62') {
+        return $number;
+    }
+    // Default: jika format tidak terduga, coba tambahkan 62
+    return '62' . $number;
 }
 
 /**
@@ -33,7 +41,7 @@ function send_fonnte_notification($target, $message) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_ENCODING => '',
         CURLOPT_MAXREDIRS => 10,
-        CURLOPT_TIMEOUT => 10, // Timeout 10 detik agar tidak memperlambat proses
+        CURLOPT_TIMEOUT => 10,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_CUSTOMREQUEST => 'POST',
@@ -42,19 +50,16 @@ function send_fonnte_notification($target, $message) {
     ));
     $response = curl_exec($curl);
     curl_close($curl);
-    // Response dari Fonnte bisa di-log jika perlu, tapi kita tidak menampilkannya ke user.
 }
 
 
 // --- *** BAGIAN CALLBACK HANDLER *** ---
-// URL untuk ini: /index.php?action=tripay_callback
 $actionForCallback = $_GET['action'] ?? '';
 if ($actionForCallback === 'tripay_callback') {
     $privateKey = get_setting($mysqli, 'tripay_private_key');
     $callbackSignature = $_SERVER['HTTP_X_CALLBACK_SIGNATURE'] ?? '';
     $json = file_get_contents('php://input');
 
-    // Pastikan signature valid
     $signature = hash_hmac('sha256', $json, $privateKey);
     if ($callbackSignature !== $signature) {
         exit(json_encode(['success' => false, 'message' => 'Invalid Signature']));
@@ -187,17 +192,27 @@ if ($action === 'check_payment_status') {
             // Pembayaran Berhasil
             $orderData = $_SESSION['pending_payment'];
             
-            // --- KIRIM NOTIFIKASI FONNTE KE PELANGGAN ---
+            // --- KIRIM NOTIFIKASI FONNTE KE PELANGGAN (DENGAN DETAIL LENGKAP) ---
             $customer_number = format_whatsapp_number($orderData['whatsapp']);
-            $customer_message = "Terima kasih, {$orderData['nama']}.\n\nPembayaran untuk pesanan Anda *#{$orderData['merchant_ref']}* sebesar *" . format_rupiah($orderData['grand_total']) . "* telah kami terima.\n\nPesanan Anda akan segera kami proses.";
+            $customer_message = "Terima kasih *{$orderData['nama']}*! Pembayaran Anda telah berhasil kami verifikasi (LUNAS).\n\n";
+            $customer_message .= "*Pesanan Anda akan segera kami proses.*\n\n";
+            $customer_message .= "--- DETAIL PESANAN ---\n";
+            $customer_message .= "No. Pesanan: *{$orderData['merchant_ref']}*\n\n";
+            foreach ($orderData['order_items_details'] as $order_item) { $customer_message .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
+            $customer_message .= "\nSubtotal Produk: " . format_rupiah($orderData['subtotal_produk']) . "\n";
+            $customer_message .= "Pengiriman: {$orderData['shipping_details']} (" . format_rupiah($orderData['shipping_cost']) . ")\n";
+            $customer_message .= "--------------------------\n";
+            $customer_message .= "*TOTAL BAYAR: " . format_rupiah($orderData['grand_total']) . "*\n";
+            $customer_message .= "--------------------------\n\n";
+            $customer_message .= "*Alamat Pengiriman:*\n{$orderData['nama']}\n" . '0' . substr($customer_number, 2) . "\n\n{$orderData['alamat']}\nKel. {$orderData['kelurahan']}, Kec. {$orderData['kecamatan']}\n{$orderData['kota']}, {$orderData['provinsi']} {$orderData['kodepos']}";
             send_fonnte_notification($customer_number, $customer_message);
             // --- AKHIR BLOK NOTIFIKASI ---
             
-            // Buat pesan untuk Admin
+            // Buat pesan untuk Admin (tidak berubah)
             $admin_message = "Halo *{$app_name}*, pembayaran untuk pesanan *{$orderData['merchant_ref']}* telah berhasil diverifikasi (LUNAS).\n\n--- DETAIL PESANAN ---\n";
             foreach ($orderData['order_items_details'] as $order_item) { $admin_message .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
             $admin_message .= "\nSubtotal Produk: " . format_rupiah($orderData['subtotal_produk']) . "\nPengiriman: {$orderData['shipping_details']} (" . format_rupiah($orderData['shipping_cost']) . ")\n";
-            $admin_message .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($orderData['grand_total']) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$orderData['nama']}\n{$orderData['whatsapp']}\n\n{$orderData['alamat']}\nKel. {$orderData['kelurahan']}, Kec. {$orderData['kecamatan']}\n{$orderData['kota']}, {$orderData['provinsi']} {$orderData['kodepos']}\n\nMohon segera diproses. Terima kasih.";
+            $admin_message .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($orderData['grand_total']) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$orderData['nama']}\n" . '0' . substr($customer_number, 2) . "\n\n{$orderData['alamat']}\nKel. {$orderData['kelurahan']}, Kec. {$orderData['kecamatan']}\n{$orderData['kota']}, {$orderData['provinsi']} {$orderData['kodepos']}\n\nMohon segera diproses. Terima kasih.";
 
             // Bersihkan sesi dan file status
             unset($_SESSION['pending_payment']);
@@ -248,7 +263,7 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
         $pesan = "Halo *{$app_name}*, saya pesan untuk *BAYAR DI TEMPAT (COD)*:\n\n--- DETAIL PESANAN ---\n";
         foreach ($order_items_details as $order_item) { $pesan .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
         $pesan .= "\nSubtotal Produk: " . format_rupiah($subtotal_produk) . "\nPengiriman: {$shipping_details} (" . format_rupiah($shipping_cost) . ")\n";
-        $pesan .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($grand_total) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$nama}\n{$whatsapp}\n\n{$alamat}\nKel. {$kelurahan}, Kec. {$kecamatan}\n{$kota}, {$provinsi} {$kodepos}\n\nMohon segera diproses. Terima kasih.";
+        $pesan .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($grand_total) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$nama}\n0{$whatsapp}\n\n{$alamat}\nKel. {$kelurahan}, Kec. {$kecamatan}\n{$kota}, {$provinsi} {$kodepos}\n\nMohon segera diproses. Terima kasih.";
         $_SESSION['cart'] = [];
         echo json_encode(['success' => true, 'redirect_url' => "https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text=" . urlencode($pesan)]);
         exit();
@@ -264,7 +279,7 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
 
         $payload = [
             'method' => $tripay_method, 'merchant_ref' => $merchantRef, 'amount' => $grand_total,
-            'customer_name' => $nama, 'customer_email' => $email, 'customer_phone' => $whatsapp,
+            'customer_name' => $nama, 'customer_email' => $email, 'customer_phone' => '0'.$whatsapp,
             'order_items' => $order_items_details, 'return_url' => $base_url . '/index.php?page=thankyou',
             'expired_time' => (time() + (24 * 60 * 60)), 'signature' => $signature
         ];
@@ -337,7 +352,25 @@ $page = $_GET['page'] ?? 'home';
             if (empty($_SESSION['cart'])) { echo "<script>window.location.href = 'index.php?page=cart';</script>"; exit(); }
             $subtotal_produk_checkout = 0;
             foreach ($_SESSION['cart'] as $item) { $stmt_checkout_sub = $mysqli->prepare("SELECT price FROM products WHERE id = ?"); $stmt_checkout_sub->bind_param("i", $item['id']); $stmt_checkout_sub->execute(); $product_price = $stmt_checkout_sub->get_result()->fetch_assoc()['price'] ?? 0; $subtotal_produk_checkout += $product_price * $item['quantity']; $stmt_checkout_sub->close(); } ?>
-            <div class="row g-5"><div class="col-md-5 col-lg-4 order-md-last"><h4 class="mb-3"><span class="text-primary">Ringkasan</span></h4><ul class="list-group mb-3"><li class="list-group-item d-flex justify-content-between"><span>Subtotal Produk</span><strong><?= format_rupiah($subtotal_produk_checkout) ?></strong></li><li id="shipping-cost-summary" class="list-group-item d-flex justify-content-between d-none"><span>Ongkos Kirim</span><strong id="shipping-cost-text">-</strong></li><li class="list-group-item d-flex justify-content-between bg-light fs-5"><span class="fw-bold">Grand Total</span><strong id="grand-total-text" data-subtotal="<?= $subtotal_produk_checkout ?>"><?= format_rupiah($subtotal_produk_checkout) ?></strong></li></ul></div><div class="col-md-7 col-lg-8"><h4 class="mb-3">Detail Pesanan</h4><div id="checkout-error" class="alert alert-danger d-none"></div><form id="checkout-form" action="index.php" method="post"><input type="hidden" name="action" value="process_checkout"><input type="hidden" name="provinsi_text" id="provinsi_text"><input type="hidden" name="kota_text" id="kota_text"><input type="hidden" name="kecamatan_text" id="kecamatan_text"><input type="hidden" name="kelurahan_text" id="kelurahan_text"><input type="hidden" name="kodepos" id="kodepos-input"><input type="hidden" name="shipping_cost" id="shipping_cost_input" value="0"><input type="hidden" name="shipping_details" id="shipping_details_input"><input type="hidden" name="tripay_method" id="tripay_method_input"><div class="row g-3"><div class="col-sm-6"><label for="nama" class="form-label">Nama Lengkap</label><input type="text" class="form-control" id="nama" name="nama" required></div><div class="col-sm-6"><label for="whatsapp" class="form-label">Nomor WhatsApp</label><div class="input-group"><span class="input-group-text">+62</span><input type="tel" class="form-control" id="whatsapp" name="whatsapp" required></div></div><div class="col-12"><label for="email" class="form-label">Email</label><input type="email" class="form-control" id="email" name="email" required></div><div class="col-sm-6"><label for="provinsi" class="form-label">Provinsi</label><select class="form-select" id="provinsi" required><option value="">Memuat...</option></select></div><div class="col-sm-6"><label for="kota" class="form-label">Kota/Kabupaten</label><select class="form-select" id="kota" required disabled></select></div><div class="col-sm-6"><label for="kecamatan" class="form-label">Kecamatan</label><select class="form-select" id="kecamatan" required disabled></select></div><div class="col-sm-6"><label for="kelurahan" class="form-label">Kelurahan/Desa</label><select class="form-select" id="kelurahan" required disabled></select></div><div class="col-12"><label for="alamat" class="form-label">Alamat Lengkap</label><textarea class="form-control" id="alamat" name="alamat" rows="2" placeholder="Nama jalan, nomor rumah, RT/RW" required></textarea></div><div id="kodepos-container" class="col-12 mt-2 d-none"><span class="fw-medium">Kode Pos:</span> <span id="kodepos-result" class="badge fs-6"></span></div></div><hr class="my-4"><div id="shipping-section" class="d-none"><h4 class="mb-3">Opsi Pengiriman</h4><div class="text-center" id="shipping-loader"><div class="spinner-border text-primary"></div><p>Mencari ongkir...</p></div><div id="shipping-options-container" class="vstack gap-2"></div><div id="shipping-error" class="alert alert-warning d-none"></div></div><hr class="my-4"><h4 class="mb-3">Metode Pembayaran</h4><div class="vstack gap-2"><div class="payment-option"><input id="cod" name="payment_method" type="radio" class="form-check-input" value="COD" required><label class="form-check-label w-100 ms-2" for="cod"><i class="fa-solid fa-hand-holding-dollar me-2"></i>Bayar di Tempat (COD)</label></div><div class="payment-option"><input id="tripay" name="payment_method" type="radio" class="form-check-input" value="TRIPAY" required><label class="form-check-label w-100 ms-2" for="tripay"><i class="fa-solid fa-credit-card me-2"></i>Transfer Bank / E-Wallet</label></div></div><hr class="my-4"><button class="w-100 btn btn-primary btn-lg" type="submit" id="process-order-btn"><span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span> Proses Pesanan</button></form></div></div>
+            <div class="row g-5"><div class="col-md-5 col-lg-4 order-md-last"><h4 class="mb-3"><span class="text-primary">Ringkasan</span></h4><ul class="list-group mb-3"><li class="list-group-item d-flex justify-content-between"><span>Subtotal Produk</span><strong><?= format_rupiah($subtotal_produk_checkout) ?></strong></li><li id="shipping-cost-summary" class="list-group-item d-flex justify-content-between d-none"><span>Ongkos Kirim</span><strong id="shipping-cost-text">-</strong></li><li class="list-group-item d-flex justify-content-between bg-light fs-5"><span class="fw-bold">Grand Total</span><strong id="grand-total-text" data-subtotal="<?= $subtotal_produk_checkout ?>"><?= format_rupiah($subtotal_produk_checkout) ?></strong></li></ul></div><div class="col-md-7 col-lg-8"><h4 class="mb-3">Detail Pesanan</h4><div id="checkout-error" class="alert alert-danger d-none"></div>
+                <form id="checkout-form" action="index.php" method="post">
+                    <input type="hidden" name="action" value="process_checkout"><input type="hidden" name="provinsi_text" id="provinsi_text"><input type="hidden" name="kota_text" id="kota_text"><input type="hidden" name="kecamatan_text" id="kecamatan_text"><input type="hidden" name="kelurahan_text" id="kelurahan_text"><input type="hidden" name="kodepos" id="kodepos-input"><input type="hidden" name="shipping_cost" id="shipping_cost_input" value="0"><input type="hidden" name="shipping_details" id="shipping_details_input"><input type="hidden" name="tripay_method" id="tripay_method_input">
+                    <div class="row g-3">
+                        <div class="col-sm-6"><label for="nama" class="form-label">Nama Lengkap</label><input type="text" class="form-control" id="nama" name="nama" required></div>
+                        <div class="col-sm-6"><label for="whatsapp" class="form-label">Nomor WhatsApp</label><div class="input-group"><span class="input-group-text">+62</span><input type="tel" class="form-control" id="whatsapp" name="whatsapp" placeholder="8123456789" pattern="8[0-9]{8,15}" title="Masukkan nomor WhatsApp valid diawali dengan angka 8." required></div></div>
+                        <div class="col-12"><label for="email" class="form-label">Email</label><input type="email" class="form-control" id="email" name="email" required></div>
+                        <div class="col-sm-6"><label for="provinsi" class="form-label">Provinsi</label><select class="form-select" id="provinsi" required><option value="">Memuat...</option></select></div>
+                        <div class="col-sm-6"><label for="kota" class="form-label">Kota/Kabupaten</label><select class="form-select" id="kota" required disabled></select></div>
+                        <div class="col-sm-6"><label for="kecamatan" class="form-label">Kecamatan</label><select class="form-select" id="kecamatan" required disabled></select></div>
+                        <div class="col-sm-6"><label for="kelurahan" class="form-label">Kelurahan/Desa</label><select class="form-select" id="kelurahan" required disabled></select></div>
+                        <div class="col-12"><label for="alamat" class="form-label">Alamat Lengkap</label><textarea class="form-control" id="alamat" name="alamat" rows="2" placeholder="Nama jalan, nomor rumah, RT/RW" required></textarea></div>
+                        <div id="kodepos-container" class="col-12 mt-2 d-none"><span class="fw-medium">Kode Pos:</span> <span id="kodepos-result" class="badge fs-6"></span></div>
+                    </div><hr class="my-4">
+                    <div id="shipping-section" class="d-none"><h4 class="mb-3">Opsi Pengiriman</h4><div class="text-center" id="shipping-loader"><div class="spinner-border text-primary"></div><p>Mencari ongkir...</p></div><div id="shipping-options-container" class="vstack gap-2"></div><div id="shipping-error" class="alert alert-warning d-none"></div></div><hr class="my-4">
+                    <h4 class="mb-3">Metode Pembayaran</h4><div class="vstack gap-2"><div class="payment-option"><input id="cod" name="payment_method" type="radio" class="form-check-input" value="COD" required><label class="form-check-label w-100 ms-2" for="cod"><i class="fa-solid fa-hand-holding-dollar me-2"></i>Bayar di Tempat (COD)</label></div><div class="payment-option"><input id="tripay" name="payment_method" type="radio" class="form-check-input" value="TRIPAY" required><label class="form-check-label w-100 ms-2" for="tripay"><i class="fa-solid fa-credit-card me-2"></i>Transfer Bank / E-Wallet</label></div></div><hr class="my-4">
+                    <button class="w-100 btn btn-primary btn-lg" type="submit" id="process-order-btn"><span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span> Proses Pesanan</button>
+                </form>
+            </div></div>
         <?php endif; ?>
     </main>
     
