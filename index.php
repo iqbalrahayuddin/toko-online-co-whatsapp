@@ -14,7 +14,6 @@ $rajaongkirApiUrl_KodePos = 'https://rajaongkir.komerce.id/api/v1/destination/do
 $tripayApiKey = get_setting($mysqli, 'tripay_api_key');
 $tripayPrivateKey = get_setting($mysqli, 'tripay_private_key');
 $tripayMerchantCode = get_setting($mysqli, 'tripay_merchant_code');
-// URL Produksi Tripay sesuai dokumentasi
 $tripayApiUrl = 'https://tripay.co.id/api/transaction/create';
 
 // --- Menentukan URL Absolut untuk Meta Tags ---
@@ -24,7 +23,6 @@ $script_path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
 $base_url = "{$protocol}://{$host}{$script_path}";
 $meta_image_url = $base_url . '/uploads/' . rawurlencode($app_logo);
 $current_url = $protocol . '://' . $host . $_SERVER['REQUEST_URI'];
-// --- Akhir Bagian Baru ---
 
 // --- Inisialisasi Keranjang ---
 if (!isset($_SESSION['cart'])) {
@@ -49,7 +47,6 @@ if ($params) {
 }
 $stmt_products->execute();
 $products_result = $stmt_products->get_result();
-// ---
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -109,7 +106,7 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
                 'name'        => $product['name'],
                 'price'       => $product['price'],
                 'quantity'    => $item['quantity'],
-                'product_url' => $base_url . '/index.php?page=product&id=' . $product['id'], // Contoh URL produk
+                'product_url' => $base_url . '/index.php?page=product&id=' . $product['id'],
                 'image_url'   => $base_url . '/uploads/' . rawurlencode($product['image']),
             ]; 
         }
@@ -125,7 +122,6 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
     }
 
     if ($payment_method === 'TRIPAY') {
-        // Tambahkan ongkir sebagai item terpisah
         $order_items_details[] = [
             'sku'      => 'ONGKIR',
             'name'     => 'Biaya Pengiriman (' . $shipping_details . ')',
@@ -137,15 +133,15 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
         $signature = hash_hmac('sha256', $tripayMerchantCode . $merchantRef . $grand_total, $tripayPrivateKey);
 
         $payload = [
-            'method'         => '', // Dikosongkan agar pelanggan bisa memilih di halaman checkout Tripay
+            'method'         => '', // Wajib ada, dikosongkan agar pelanggan bisa memilih
             'merchant_ref'   => $merchantRef,
             'amount'         => $grand_total,
             'customer_name'  => $nama,
             'customer_email' => $email,
             'customer_phone' => $whatsapp,
             'order_items'    => $order_items_details,
-            'return_url'     => $base_url . '/index.php?page=thankyou', // Ganti dengan halaman terima kasih Anda
-            'expired_time'   => (time() + (24 * 60 * 60)), // 24 jam
+            'return_url'     => $base_url . '/index.php?page=thankyou',
+            'expired_time'   => (time() + (24 * 60 * 60)),
             'signature'      => $signature
         ];
 
@@ -165,11 +161,29 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
         if (isset($response_data['success']) && $response_data['success'] == true) {
             $_SESSION['cart'] = [];
             header('Location: ' . $response_data['data']['checkout_url']);
+            exit();
         } else {
-            $error_message = urlencode($response_data['message'] ?? 'Gateway error.');
-            header("Location: index.php?page=checkout&error=tripay&msg={$error_message}");
+            // --- DEBUGGING: Tampilkan detail error jika gagal ---
+            echo "<h3>Gagal membuat transaksi Tripay.</h3>";
+            echo "<p>Silakan periksa detail di bawah ini dan laporkan jika perlu.</p>";
+            
+            echo "<h4>Payload yang Dikirim:</h4>";
+            echo "<pre>";
+            var_dump($payload);
+            echo "</pre>";
+            
+            echo "<h4>Response dari Tripay:</h4>";
+            echo "<pre>";
+            var_dump($response_data);
+            echo "</pre>";
+
+            echo "<h4>Response Mentah dari Server:</h4>";
+            echo "<pre>";
+            print_r($response);
+            echo "</pre>";
+            
+            exit();
         }
-        exit();
     }
 }
 
@@ -208,7 +222,7 @@ $page = $_GET['page'] ?? 'home';
         .payment-option, .shipping-option { border: 1px solid #dee2e6; border-radius: .375rem; padding: 1rem; transition: all .15s ease-in-out; cursor:pointer; }
         .payment-option:has(.form-check-input:checked), .shipping-option:has(.form-check-input:checked) { border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
         #shipping-options-container {
-            max-height: 220px; /* Perkiraan tinggi untuk 3 item, sesuaikan jika perlu */
+            max-height: 220px;
             overflow-y: auto;
         }
     </style>
