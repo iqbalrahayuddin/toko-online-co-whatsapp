@@ -132,8 +132,13 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
         $merchantRef = 'INV-' . time();
         $signature = hash_hmac('sha256', $tripayMerchantCode . $merchantRef . $grand_total, $tripayPrivateKey);
 
+        // --- PERBAIKAN ---
+        // Parameter 'method' wajib diisi dengan kode channel pembayaran.
+        // Contoh: 'BRIVA' untuk BRI VA, 'QRIS' untuk QRIS, 'OVO' untuk OVO, dll.
+        // Untuk daftar lengkap, lihat dokumentasi "Channel Pembayaran" dari Tripay.
+        // Untuk sementara, kita gunakan 'BRIVA' agar API call berhasil.
         $payload = [
-            'method'         => '', // Wajib ada, dikosongkan agar pelanggan bisa memilih
+            'method'         => 'BRIVA',
             'merchant_ref'   => $merchantRef,
             'amount'         => $grand_total,
             'customer_name'  => $nama,
@@ -147,15 +152,21 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
 
         $curl = curl_init();
         curl_setopt_array($curl, [
+            CURLOPT_FRESH_CONNECT  => true,
             CURLOPT_URL            => $tripayApiUrl,
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER         => false,
             CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $tripayApiKey],
+            CURLOPT_FAILONERROR    => false,
             CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => http_build_query($payload)
+            CURLOPT_POSTFIELDS     => http_build_query($payload),
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4
         ]);
 
         $response = curl_exec($curl);
+        $error = curl_error($curl);
         curl_close($curl);
+        
         $response_data = json_decode($response, true);
         
         if (isset($response_data['success']) && $response_data['success'] == true) {
@@ -163,23 +174,23 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
             header('Location: ' . $response_data['data']['checkout_url']);
             exit();
         } else {
-            // --- DEBUGGING: Tampilkan detail error jika gagal ---
+            // --- DEBUGGING BLOCK ---
             echo "<h3>Gagal membuat transaksi Tripay.</h3>";
-            echo "<p>Silakan periksa detail di bawah ini dan laporkan jika perlu.</p>";
+            echo "<p>Silakan periksa detail di bawah ini. Error cURL: " . htmlspecialchars($error) . "</p>";
             
             echo "<h4>Payload yang Dikirim:</h4>";
             echo "<pre>";
             var_dump($payload);
             echo "</pre>";
             
-            echo "<h4>Response dari Tripay:</h4>";
+            echo "<h4>Response dari Tripay (JSON):</h4>";
             echo "<pre>";
             var_dump($response_data);
             echo "</pre>";
 
             echo "<h4>Response Mentah dari Server:</h4>";
             echo "<pre>";
-            print_r($response);
+            print_r(htmlspecialchars($response));
             echo "</pre>";
             
             exit();
