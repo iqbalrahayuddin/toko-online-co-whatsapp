@@ -14,9 +14,10 @@ $rajaongkirApiUrl_KodePos = 'https://rajaongkir.komerce.id/api/v1/destination/do
 $tripayApiKey = get_setting($mysqli, 'tripay_api_key');
 $tripayPrivateKey = get_setting($mysqli, 'tripay_private_key');
 $tripayMerchantCode = get_setting($mysqli, 'tripay_merchant_code');
-$tripayApiUrl = '   https://tripay.co.id/api/transaction/create';
+// URL Produksi Tripay sesuai dokumentasi
+$tripayApiUrl = 'https://tripay.co.id/api/transaction/create';
 
-// --- [BARU] Menentukan URL Absolut untuk Meta Tags ---
+// --- Menentukan URL Absolut untuk Meta Tags ---
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
 $host = $_SERVER['HTTP_HOST'];
 $script_path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
@@ -96,34 +97,78 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
         header('Location: index.php?page=checkout&error=1'); exit();
     }
     
-    $subtotal_produk = 0; $order_items = [];
+    $subtotal_produk = 0; $order_items_details = [];
     foreach ($_SESSION['cart'] as $item) { 
         $stmt_checkout = $mysqli->prepare("SELECT * FROM products WHERE id = ?");
         $stmt_checkout->bind_param("i", $item['id']); $stmt_checkout->execute();
         $product = $stmt_checkout->get_result()->fetch_assoc(); $stmt_checkout->close();
         if($product) {
             $subtotal_produk += $product['price'] * $item['quantity']; 
-            $order_items[] = ['sku' => 'P' . $item['id'], 'name' => $product['name'], 'price' => $product['price'], 'quantity' => $item['quantity']]; 
+            $order_items_details[] = [
+                'sku'         => 'P' . $product['id'],
+                'name'        => $product['name'],
+                'price'       => $product['price'],
+                'quantity'    => $item['quantity'],
+                'product_url' => $base_url . '/index.php?page=product&id=' . $product['id'], // Contoh URL produk
+                'image_url'   => $base_url . '/uploads/' . rawurlencode($product['image']),
+            ]; 
         }
     }
     $grand_total = $subtotal_produk + $shipping_cost;
 
     if ($payment_method === 'COD') {
         $pesan = "Halo *{$app_name}*, saya pesan untuk *BAYAR DI TEMPAT (COD)*:\n\n--- DETAIL PESANAN ---\n";
-        foreach ($order_items as $order_item) { $pesan .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
+        foreach ($order_items_details as $order_item) { $pesan .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
         $pesan .= "\nSubtotal Produk: " . format_rupiah($subtotal_produk) . "\nPengiriman: {$shipping_details} (" . format_rupiah($shipping_cost) . ")\n";
         $pesan .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($grand_total) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$nama}\n{$whatsapp}\n\n{$alamat}\nKel. {$kelurahan}, Kec. {$kecamatan}\n{$kota}, {$provinsi} {$kodepos}\n\nMohon segera diproses. Terima kasih.";
         $_SESSION['cart'] = []; header("Location: https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text=" . urlencode($pesan)); exit();
     }
 
     if ($payment_method === 'TRIPAY') {
-        $merchantRef = 'INV-' . time(); $order_items[] = ['sku' => 'ONGKIR', 'name' => 'Biaya Pengiriman', 'price' => $shipping_cost, 'quantity' => 1];
+        // Tambahkan ongkir sebagai item terpisah
+        $order_items_details[] = [
+            'sku'      => 'ONGKIR',
+            'name'     => 'Biaya Pengiriman (' . $shipping_details . ')',
+            'price'    => $shipping_cost,
+            'quantity' => 1
+        ];
+
+        $merchantRef = 'INV-' . time();
         $signature = hash_hmac('sha256', $tripayMerchantCode . $merchantRef . $grand_total, $tripayPrivateKey);
-        $data = ['method' => 'BRIVA', 'merchant_ref' => $merchantRef, 'amount' => $grand_total, 'customer_name' => $nama, 'customer_email' => $email, 'customer_phone' => $whatsapp, 'order_items' => $order_items, 'return_url' => 'https://domainanda.com/redirect', 'expired_time' => (time() + (24 * 60 * 60)), 'signature' => $signature ];
-        $curl = curl_init(); curl_setopt_array($curl, [ CURLOPT_URL => $tripayApiUrl, CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tripayApiKey], CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query($data) ]);
-        $response = curl_exec($curl); curl_close($curl); $response_data = json_decode($response, true);
-        if ($response_data && $response_data['success'] == true) { $_SESSION['cart'] = []; header('Location: ' . $response_data['data']['checkout_url']); } 
-        else { header('Location: index.php?page=checkout&error=tripay&msg=' . urlencode($response_data['message'] ?? 'Gateway error.')); }
+
+        $payload = [
+            'method'         => '', // Dikosongkan agar pelanggan bisa memilih di halaman checkout Tripay
+            'merchant_ref'   => $merchantRef,
+            'amount'         => $grand_total,
+            'customer_name'  => $nama,
+            'customer_email' => $email,
+            'customer_phone' => $whatsapp,
+            'order_items'    => $order_items_details,
+            'return_url'     => $base_url . '/index.php?page=thankyou', // Ganti dengan halaman terima kasih Anda
+            'expired_time'   => (time() + (24 * 60 * 60)), // 24 jam
+            'signature'      => $signature
+        ];
+
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL            => $tripayApiUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $tripayApiKey],
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => http_build_query($payload)
+        ]);
+
+        $response = curl_exec($curl);
+        curl_close($curl);
+        $response_data = json_decode($response, true);
+        
+        if (isset($response_data['success']) && $response_data['success'] == true) {
+            $_SESSION['cart'] = [];
+            header('Location: ' . $response_data['data']['checkout_url']);
+        } else {
+            $error_message = urlencode($response_data['message'] ?? 'Gateway error.');
+            header("Location: index.php?page=checkout&error=tripay&msg={$error_message}");
+        }
         exit();
     }
 }
@@ -162,7 +207,6 @@ $page = $_GET['page'] ?? 'home';
         .cart-badge { position: absolute; top: -5px; right: -10px; padding: 0.25em 0.5em; font-size: 0.7rem; font-weight: bold; border-radius: 50rem; }
         .payment-option, .shipping-option { border: 1px solid #dee2e6; border-radius: .375rem; padding: 1rem; transition: all .15s ease-in-out; cursor:pointer; }
         .payment-option:has(.form-check-input:checked), .shipping-option:has(.form-check-input:checked) { border-color: #0d6efd; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
-        /* Style baru untuk shipping-options-container */
         #shipping-options-container {
             max-height: 220px; /* Perkiraan tinggi untuk 3 item, sesuaikan jika perlu */
             overflow-y: auto;
@@ -326,16 +370,13 @@ $page = $_GET['page'] ?? 'home';
                 loader.classList.add('d-none');
                 if (data.meta.status === 'success' && data.data.length > 0) {
                     
-                    // --- PERUBAHAN DIMULAI DI SINI ---
-                    // 1. Urutkan data berdasarkan harga (cost) termurah
                     const sortedOptions = data.data.sort((a, b) => a.cost - b.cost);
                     
                     sortedOptions.forEach(option => {
                         const costValue = option.cost; const etd = option.etd; const id = `${option.code}-${option.service.replace(/\s+/g, '-')}`;
                         const details = `${option.name} - ${option.service}`;
-                        container.innerHTML += `<div class="shipping-option"><input type="radio" class="form-check-input" name="shipping_option" id="${id}" value="${costValue}" data-details="${details}" required><label class="form-check-label w-100 ms-2" for="${id}">${details} (${etd}) - <strong>${new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(costValue)}</strong></label></div>`;
+                        container.innerHTML += `<div class="shipping-option"><input type="radio" class="form-check-input" name="shipping_option" id="${id}" value="${costValue}" data-details="${details}" required><label class="form-check-label w-100 ms-2" for="${id}">${details} (${etd}) - <strong>${new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR', minimumFractionDigits: 0}).format(costValue)}</strong></label></div>`;
                     });
-                    // --- PERUBAHAN SELESAI DI SINI ---
                     
                     addShippingEventListeners();
                 } else {
@@ -353,8 +394,8 @@ $page = $_GET['page'] ?? 'home';
                     const grandTotal = subtotal + shippingCost;
                     const shippingDetails = this.dataset.details;
                     document.getElementById('shipping-cost-summary').classList.remove('d-none');
-                    document.getElementById('shipping-cost-text').innerText = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(shippingCost);
-                    document.getElementById('grand-total-text').innerText = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(grandTotal);
+                    document.getElementById('shipping-cost-text').innerText = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR', minimumFractionDigits: 0}).format(shippingCost);
+                    document.getElementById('grand-total-text').innerText = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR', minimumFractionDigits: 0}).format(grandTotal);
                     document.getElementById('shipping_cost_input').value = shippingCost;
                     document.getElementById('shipping_details_input').value = shippingDetails;
                 });
