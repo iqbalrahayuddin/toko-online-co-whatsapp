@@ -155,7 +155,7 @@ if ($action === 'calculate_ongkir') {
     $curl = curl_init();
     curl_setopt_array($curl, [
         CURLOPT_URL => $rajaongkirApiUrl_Ongkir, CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => "POST",
-        CURLOPT_POSTFIELDS => http_build_query(['origin' => $rajaongkirOriginId, 'destination' => $destination, 'weight' => 1000, 'courier' => 'jne:sicepat:jnt:ninja:anteraja:pos']),
+        CURLOPT_POSTFIELDS => http_build_query(['origin' => $rajaongkirOriginId, 'destination' => $destination, 'weight' => 1000, 'courier' => 'jne:jnt']),
         CURLOPT_HTTPHEADER => ["Content-Type: application/x-www-form-urlencoded", "key: " . $rajaongkirApiKey],
     ]);
     $response = curl_exec($curl); curl_close($curl); echo $response;
