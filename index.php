@@ -375,7 +375,14 @@ $page = $_GET['page'] ?? 'home';
     </main>
     
     <div class="modal fade" id="tripayChannelModal" tabindex="-1" aria-labelledby="tripayChannelModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h1 class="modal-title fs-5" id="tripayChannelModalLabel">Pilih Channel Pembayaran</h1><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div id="tripay-channels-loader" class="text-center my-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Memuat channel...</p></div><div id="tripay-channels-error" class="alert alert-danger d-none"></div><div id="tripay-channels-container" class="vstack gap-2"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button><button type="button" class="btn btn-primary" id="confirm-tripay-channel" disabled>Lanjutkan</button></div></div></div></div>
-    <div class="modal fade" id="paymentDetailModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="paymentDetailModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h1 class="modal-title fs-5" id="paymentDetailModalLabel">Detail Pembayaran</h1></div><div class="modal-body" id="payment-modal-body"><div id="payment-waiting-view" class="text-center my-4"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div><h5 class="mt-3">Menunggu Pembayaran...</h5><p class="text-muted small">Jangan tutup halaman ini. Anda akan diarahkan secara otomatis setelah pembayaran terverifikasi.</p></div><div id="payment-details-view" class="d-none"><p class="text-center">Selesaikan pembayaran Anda sebelum waktu kedaluwarsa.</p><div class="text-center mb-3"><h5 class="mb-1">Total Tagihan</h5><h3 class="fw-bold text-primary" id="payment-amount"></h3></div><div id="qris-display" class="text-center d-none"><img id="qris-image" src="" alt="QR Code" class="img-fluid rounded" style="max-width: 250px;"><p class="mt-2 small text-muted">Scan QR Code menggunakan aplikasi E-Wallet Anda.</p></div><div id="va-display" class="d-none"><p class="mb-2" id="va-payment-name"></p><div class="input-group mb-3 va-number-container p-2 rounded"><span class="input-group-text bg-transparent border-0 fw-bold fs-5" id="va-number"></span><button class="btn btn-outline-primary ms-auto" type="button" id="copy-va-btn" data-bs-toggle="tooltip" data-bs-placement="top" title="Salin Kode"><i class="fa-regular fa-copy"></i></button></div></div><hr><div id="payment-instructions"></div></div><div id="payment-success-view" class="text-center my-4 d-none"><i class="fa-solid fa-circle-check fa-4x text-success"></i><h5 class="mt-3">Pembayaran Berhasil!</h5><p class="text-muted small">Notifikasi telah dikirim ke WhatsApp Anda. Halaman ini akan dialihkan sebentar lagi...</p></div></div></div></div></div>
+    <div class="modal fade" id="paymentDetailModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="paymentDetailModalLabel" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h1 class="modal-title fs-5" id="paymentDetailModalLabel">Detail Pembayaran</h1></div><div class="modal-body" id="payment-modal-body"><div id="payment-waiting-view" class="text-center my-4"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div><h5 class="mt-3">Menunggu Pembayaran...</h5><p class="text-muted small">Jangan tutup halaman ini. Pembayaran akan dicek secara otomatis.</p></div><div id="payment-details-view" class="d-none"><p class="text-center">Selesaikan pembayaran Anda sebelum waktu kedaluwarsa.</p><div class="text-center mb-3"><h5 class="mb-1">Total Tagihan</h5><h3 class="fw-bold text-primary" id="payment-amount"></h3></div><div id="qris-display" class="text-center d-none"><img id="qris-image" src="" alt="QR Code" class="img-fluid rounded" style="max-width: 250px;"><p class="mt-2 small text-muted">Scan QR Code menggunakan aplikasi E-Wallet Anda.</p></div><div id="va-display" class="d-none"><p class="mb-2" id="va-payment-name"></p><div class="input-group mb-3 va-number-container p-2 rounded"><span class="input-group-text bg-transparent border-0 fw-bold fs-5" id="va-number"></span><button class="btn btn-outline-primary ms-auto" type="button" id="copy-va-btn" data-bs-toggle="tooltip" data-bs-placement="top" title="Salin Kode"><i class="fa-regular fa-copy"></i></button></div></div><hr><div id="payment-instructions"></div></div>
+            <div id="payment-success-view" class="text-center my-4 d-none">
+                <i class="fa-solid fa-circle-check fa-4x text-success"></i>
+                <h5 class="mt-3">Pembayaran Berhasil!</h5>
+                <p class="text-muted small">Notifikasi otomatis telah dikirim ke WhatsApp Anda. Anda juga dapat mengirim pesan konfirmasi tambahan ke admin.</p>
+                <div id="success-action-container" class="mt-4"></div>
+            </div>
+        </div></div></div></div>
 
     <footer class="footer text-center"><p class="mb-0">&copy; <?= date('Y') ?> <?= htmlspecialchars($app_name) ?>.</p></footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -488,7 +495,7 @@ $page = $_GET['page'] ?? 'home';
                 startPaymentPolling();
             }, 1000);
         }
-
+        
         function startPaymentPolling() {
             if (paymentCheckInterval) clearInterval(paymentCheckInterval);
             paymentCheckInterval = setInterval(() => {
@@ -498,9 +505,33 @@ $page = $_GET['page'] ?? 'home';
                         document.getElementById('payment-details-view').classList.add('d-none');
                         document.getElementById('payment-waiting-view').classList.add('d-none');
                         document.getElementById('payment-success-view').classList.remove('d-none');
-                        setTimeout(() => {
-                            window.location.href = data.whatsapp_url;
-                        }, 2500);
+
+                        // Ambil kontainer untuk menaruh tombol
+                        const successActionContainer = document.getElementById('success-action-container');
+                        successActionContainer.innerHTML = ''; // Kosongkan dulu
+
+                        // Buat tombol "Kirim Pesan ke Admin"
+                        const adminButton = document.createElement('a');
+                        adminButton.href = data.whatsapp_url;
+                        adminButton.target = '_blank';
+                        adminButton.rel = 'noopener noreferrer';
+                        adminButton.className = 'btn btn-success btn-lg';
+                        adminButton.innerHTML = '<i class="fa-brands fa-whatsapp me-2"></i> Kirim Pesan ke Admin';
+                        
+                        // Buat tombol "Tutup" untuk menutup modal
+                        const closeModalButton = document.createElement('button');
+                        closeModalButton.type = 'button';
+                        closeModalButton.className = 'btn btn-secondary btn-lg ms-2';
+                        closeModalButton.textContent = 'Tutup';
+                        closeModalButton.onclick = function() {
+                            paymentDetailModal.hide();
+                             // Arahkan ke halaman utama setelah modal ditutup
+                            window.location.href = 'index.php';
+                        };
+                        
+                        // Tambahkan kedua tombol ke dalam kontainer
+                        successActionContainer.appendChild(adminButton);
+                        successActionContainer.appendChild(closeModalButton);
                     }
                 });
             }, 3000);
