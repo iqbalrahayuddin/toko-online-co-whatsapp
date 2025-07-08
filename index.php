@@ -238,11 +238,20 @@ if ($action === 'remove_from_cart') { $product_id = (int)$_GET['id']; if (isset(
 if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
     header('Content-Type: application/json');
 
-    $nama = htmlspecialchars(trim($_POST['nama'])); $email = htmlspecialchars(trim($_POST['email'])); $whatsapp = htmlspecialchars(trim($_POST['whatsapp'])); $alamat = htmlspecialchars(trim($_POST['alamat']));
-    $provinsi = htmlspecialchars(trim($_POST['provinsi_text'])); $kota = htmlspecialchars(trim($_POST['kota_text'])); $kecamatan = htmlspecialchars(trim($_POST['kecamatan_text'])); $kelurahan = htmlspecialchars(trim($_POST['kelurahan_text']));
-    $payment_method = $_POST['payment_method'] ?? ''; $kodepos = htmlspecialchars(trim($_POST['kodepos'])); $shipping_details = htmlspecialchars(trim($_POST['shipping_details'])); $shipping_cost = (int)($_POST['shipping_cost'] ?? 0);
+    $nama = htmlspecialchars(trim($_POST['nama']));
+    $whatsapp = htmlspecialchars(trim($_POST['whatsapp']));
+    $alamat = htmlspecialchars(trim($_POST['alamat']));
+    $provinsi = htmlspecialchars(trim($_POST['provinsi_text']));
+    $kota = htmlspecialchars(trim($_POST['kota_text']));
+    $kecamatan = htmlspecialchars(trim($_POST['kecamatan_text']));
+    $kelurahan = htmlspecialchars(trim($_POST['kelurahan_text']));
+    $payment_method = $_POST['payment_method'] ?? '';
+    $kodepos = htmlspecialchars(trim($_POST['kodepos']));
+    $shipping_details = htmlspecialchars(trim($_POST['shipping_details']));
+    $shipping_cost = (int)($_POST['shipping_cost'] ?? 0);
     
-    if (empty($nama) || empty($email) || empty($whatsapp) || empty($alamat) || empty($payment_method) || empty($kodepos) || empty($shipping_details) || $shipping_cost <= 0) {
+    // Email dihapus dari validasi
+    if (empty($nama) || empty($whatsapp) || empty($alamat) || empty($payment_method) || empty($kodepos) || empty($shipping_details) || $shipping_cost <= 0) {
         echo json_encode(['success' => false, 'message' => 'Harap lengkapi semua data, termasuk memilih opsi pengiriman.']);
         exit();
     }
@@ -259,15 +268,7 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
     }
     $grand_total = $subtotal_produk + $shipping_cost;
 
-    if ($payment_method === 'COD') {
-        $pesan = "Halo *{$app_name}*, saya pesan untuk *BAYAR DI TEMPAT (COD)*:\n\n--- DETAIL PESANAN ---\n";
-        foreach ($order_items_details as $order_item) { $pesan .= "Produk: *{$order_item['name']}* (x{$order_item['quantity']})\n"; }
-        $pesan .= "\nSubtotal Produk: " . format_rupiah($subtotal_produk) . "\nPengiriman: {$shipping_details} (" . format_rupiah($shipping_cost) . ")\n";
-        $pesan .= "--------------------------\n*TOTAL BAYAR: " . format_rupiah($grand_total) . "*\n--------------------------\n\n*Alamat Pengiriman:*\n{$nama}\n0{$whatsapp}\n\n{$alamat}\nKel. {$kelurahan}, Kec. {$kecamatan}\n{$kota}, {$provinsi} {$kodepos}\n\nMohon segera diproses. Terima kasih.";
-        $_SESSION['cart'] = [];
-        echo json_encode(['success' => true, 'redirect_url' => "https://api.whatsapp.com/send?phone={$nomor_admin_wa}&text=" . urlencode($pesan)]);
-        exit();
-    }
+    // --- BLOK COD DIHAPUS ---
 
     if ($payment_method === 'TRIPAY') {
         $tripay_method = $_POST['tripay_method'] ?? '';
@@ -277,9 +278,12 @@ if ($action === 'process_checkout' && !empty($_SESSION['cart'])) {
         $merchantRef = 'INV-' . time();
         $signature = hash_hmac('sha256', $tripayMerchantCode . $merchantRef . $grand_total, $tripayPrivateKey);
 
+        // Email dihapus dari payload, Tripay masih butuh format email, jadi kita buat dummy
+        $dummy_email = 'customer+' . $whatsapp . '@' . str_replace('www.', '', $_SERVER['HTTP_HOST']);
+
         $payload = [
             'method' => $tripay_method, 'merchant_ref' => $merchantRef, 'amount' => $grand_total,
-            'customer_name' => $nama, 'customer_email' => $email, 'customer_phone' => '0'.$whatsapp,
+            'customer_name' => $nama, 'customer_email' => $dummy_email, 'customer_phone' => '0'.$whatsapp,
             'order_items' => $order_items_details, 'return_url' => $base_url . '/index.php?page=thankyou',
             'expired_time' => (time() + (24 * 60 * 60)), 'signature' => $signature
         ];
@@ -356,9 +360,8 @@ $page = $_GET['page'] ?? 'home';
                 <form id="checkout-form" action="index.php" method="post">
                     <input type="hidden" name="action" value="process_checkout"><input type="hidden" name="provinsi_text" id="provinsi_text"><input type="hidden" name="kota_text" id="kota_text"><input type="hidden" name="kecamatan_text" id="kecamatan_text"><input type="hidden" name="kelurahan_text" id="kelurahan_text"><input type="hidden" name="kodepos" id="kodepos-input"><input type="hidden" name="shipping_cost" id="shipping_cost_input" value="0"><input type="hidden" name="shipping_details" id="shipping_details_input"><input type="hidden" name="tripay_method" id="tripay_method_input">
                     <div class="row g-3">
-                        <div class="col-sm-6"><label for="nama" class="form-label">Nama Lengkap</label><input type="text" class="form-control" id="nama" name="nama" required></div>
-                        <div class="col-sm-6"><label for="whatsapp" class="form-label">Nomor WhatsApp</label><div class="input-group"><span class="input-group-text">+62</span><input type="tel" class="form-control" id="whatsapp" name="whatsapp" placeholder="8123456789" pattern="8[0-9]{8,15}" title="Masukkan nomor WhatsApp valid diawali dengan angka 8." required></div></div>
-                        <div class="col-12"><label for="email" class="form-label">Email</label><input type="email" class="form-control" id="email" name="email" required></div>
+                        <div class="col-12"><label for="nama" class="form-label">Nama Lengkap</label><input type="text" class="form-control" id="nama" name="nama" required></div>
+                        <div class="col-12"><label for="whatsapp" class="form-label">Nomor WhatsApp</label><div class="input-group"><span class="input-group-text">+62</span><input type="tel" class="form-control" id="whatsapp" name="whatsapp" placeholder="8123456789" pattern="8[0-9]{8,15}" title="Masukkan nomor WhatsApp valid diawali dengan angka 8." required></div></div>
                         <div class="col-sm-6"><label for="provinsi" class="form-label">Provinsi</label><select class="form-select" id="provinsi" required><option value="">Memuat...</option></select></div>
                         <div class="col-sm-6"><label for="kota" class="form-label">Kota/Kabupaten</label><select class="form-select" id="kota" required disabled></select></div>
                         <div class="col-sm-6"><label for="kecamatan" class="form-label">Kecamatan</label><select class="form-select" id="kecamatan" required disabled></select></div>
@@ -367,7 +370,14 @@ $page = $_GET['page'] ?? 'home';
                         <div id="kodepos-container" class="col-12 mt-2 d-none"><span class="fw-medium">Kode Pos:</span> <span id="kodepos-result" class="badge fs-6"></span></div>
                     </div><hr class="my-4">
                     <div id="shipping-section" class="d-none"><h4 class="mb-3">Opsi Pengiriman</h4><div class="text-center" id="shipping-loader"><div class="spinner-border text-primary"></div><p>Mencari ongkir...</p></div><div id="shipping-options-container" class="vstack gap-2"></div><div id="shipping-error" class="alert alert-warning d-none"></div></div><hr class="my-4">
-                    <h4 class="mb-3">Metode Pembayaran</h4><div class="vstack gap-2"><div class="payment-option"><input id="cod" name="payment_method" type="radio" class="form-check-input" value="COD" required><label class="form-check-label w-100 ms-2" for="cod"><i class="fa-solid fa-hand-holding-dollar me-2"></i>Bayar di Tempat (COD)</label></div><div class="payment-option"><input id="tripay" name="payment_method" type="radio" class="form-check-input" value="TRIPAY" required><label class="form-check-label w-100 ms-2" for="tripay"><i class="fa-solid fa-credit-card me-2"></i>Transfer Bank / E-Wallet</label></div></div><hr class="my-4">
+                    <h4 class="mb-3">Metode Pembayaran</h4>
+                    <div class="vstack gap-2">
+                        <div class="payment-option">
+                            <input id="tripay" name="payment_method" type="radio" class="form-check-input" value="TRIPAY" required checked style="display: none;">
+                            <label class="form-check-label w-100" for="tripay"><i class="fa-solid fa-credit-card me-2"></i>Transfer Bank / E-Wallet</label>
+                        </div>
+                    </div>
+                    <hr class="my-4">
                     <button class="w-100 btn btn-primary btn-lg" type="submit" id="process-order-btn"><span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span> Proses Pesanan</button>
                 </form>
             </div></div>
